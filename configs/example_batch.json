@@ -1,0 +1,17 @@
+[
+  {
+    "name": "Pikachu",
+    "refs": "refs/pikachu/",
+    "prompt_extra": "yellow electric mouse pokemon"
+  },
+  {
+    "name": "Charizard",
+    "refs": "refs/charizard/",
+    "prompt_extra": "orange fire dragon pokemon"
+  },
+  {
+    "name": "Gengar",
+    "refs": "refs/gengar/",
+    "prompt_extra": "purple ghost pokemon"
+  }
+]

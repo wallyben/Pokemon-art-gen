@@ -1,65 +1,108 @@
 """
 Configuration management for the Pokemon Stencil Art Factory.
 
-Centralizes all tunable parameters across image generation, processing,
-vector tracing, stencil construction, and export stages.
+All tunable parameters across every pipeline stage are defined here as
+Python dataclasses.  Modules accept config objects rather than raw
+literals, making the system easy to reconfigure from the CLI or tests
+without touching internal logic.
+
+Directory conventions (applied corrections)
+-------------------------------------------
+- All runtime outputs live under ``outputs/`` (not ``output/``).
+- Pre-downloaded Stable Diffusion 1.5 weights are expected at
+  ``models/sd15/`` so the pipeline can run fully offline.
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
+
+# ── Model paths ───────────────────────────────────────────────────────────────
+
+#: Default local path for the SD 1.5 model weights.
+#: The pipeline falls back to the HuggingFace Hub ID when this path is absent.
+DEFAULT_MODEL_LOCAL_PATH: Path = Path("models/sd15")
+DEFAULT_MODEL_HUB_ID: str = "runwayml/stable-diffusion-v1-5"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sub-configs
+# ─────────────────────────────────────────────────────────────────────────────
 
 @dataclass
 class GenerationConfig:
-    """Parameters for Stable Diffusion image generation."""
+    """Parameters for Stable Diffusion 1.5 image generation.
 
-    model_id: str = "runwayml/stable-diffusion-v1-5"
+    The model is loaded from ``model_local_path`` when that directory exists,
+    otherwise it is downloaded from ``model_hub_id`` (requires internet).
+    """
+
+    model_local_path: Path = field(default_factory=lambda: DEFAULT_MODEL_LOCAL_PATH)
+    model_hub_id: str = DEFAULT_MODEL_HUB_ID
+
     num_inference_steps: int = 25
     guidance_scale: float = 7.5
     width: int = 512
     height: int = 512
+
+    #: Optional fixed seed for reproducible outputs.
     seed: Optional[int] = None
-    # CPU-optimised: use float32 (float16 not supported on most CPU builds)
+
+    #: CPU-safe dtype.  float16 is not reliable on most CPU torch builds.
     torch_dtype: str = "float32"
     device: str = "cpu"
-    # Prompt fragments appended to every generation for stencil-friendliness
+
+    #: Prompt suffix appended to every generation to push output toward the
+    #: flat, bold aesthetics required for clean stencil cutting.
     style_suffix: str = (
         "flat color illustration, bold outlines, minimal detail, "
         "stencil art style, clean shapes, white background"
     )
+
     negative_prompt: str = (
         "photorealistic, gradient, shadow, complex texture, noise, "
         "blurry, watermark, signature, multiple characters"
     )
+
+    @property
+    def model_id(self) -> str | Path:
+        """Return local path if it exists, otherwise the Hub model ID."""
+        if self.model_local_path.exists():
+            return self.model_local_path
+        return self.model_hub_id
 
 
 @dataclass
 class ProcessingConfig:
     """Parameters for image simplification and colour segmentation."""
 
-    # Bilateral filter – keeps edges while smoothing within regions
+    # ── Bilateral filter ──────────────────────────────────────────────────────
+    #: Filter diameter.  Larger values = more smoothing, slower.
     bilateral_d: int = 9
     bilateral_sigma_color: float = 75.0
     bilateral_sigma_space: float = 75.0
-
-    # Number of colour passes through the bilateral filter
+    #: Number of sequential bilateral passes.
     bilateral_passes: int = 3
 
-    # K-Means colour quantisation
-    n_colors: int = 6  # number of stencil colour layers
+    # ── Colour quantisation ───────────────────────────────────────────────────
+    #: Number of K-Means clusters == number of stencil colour layers.
+    n_colors: int = 6
 
-    # Minimum pixel area for a colour region to be kept
+    #: Layers with fewer pixels than this are discarded as noise.
     min_region_area: int = 500
 
-    # Morphological operations to clean up small holes / noise
+    # ── Morphological cleanup ─────────────────────────────────────────────────
     morph_kernel_size: int = 5
 
-    # Canny edge thresholds (used for reference only; not in stencil path)
+    # ── Edge detection (informational; not used in stencil paths) ─────────────
     canny_low: int = 50
     canny_high: int = 150
 
-    # Output image size (resize before processing)
+    # ── Image dimensions ──────────────────────────────────────────────────────
+    #: All images are resized to this before processing.
     output_size: Tuple[int, int] = (512, 512)
 
 
@@ -67,83 +110,127 @@ class ProcessingConfig:
 class VectorConfig:
     """Parameters for bitmap-to-vector tracing via potrace."""
 
-    # potrace turdsize – ignore speckles smaller than this many pixels
+    #: Ignore speckles smaller than this many pixels (potrace turdsize).
     turdsize: int = 10
 
-    # potrace alphamax – corner threshold (0 = sharp, 1.333 = round)
+    #: Corner rounding threshold: 0 = sharp corners, 1.333 = fully rounded.
     alphamax: float = 0.8
 
-    # potrace opttolerance – curve optimisation tolerance
+    #: Bezier curve optimisation tolerance.
     opttolerance: float = 0.2
 
-    # Minimum path length to keep (in SVG user units)
+    #: Paths shorter than this (in SVG user-units / pixels) are discarded.
     min_path_length: float = 20.0
 
-    # SVG canvas size in mm (Cricut standard: 12 × 12 inch = 304.8 mm)
+    # ── SVG canvas ────────────────────────────────────────────────────────────
+    #: Cricut standard mat: 12 × 12 inches = 304.8 × 304.8 mm.
     canvas_width_mm: float = 304.8
     canvas_height_mm: float = 304.8
 
-    # DPI used when converting pixel coords to mm
+    #: DPI used when converting pixel coordinates to millimetres.
     dpi: float = 96.0
 
 
 @dataclass
 class StencilConfig:
-    """Parameters for stencil layer construction."""
+    """Parameters for stencil-safety processing and layer construction."""
 
-    # Minimum bridge width in pixels to keep isolated islands connected
+    #: Minimum bridge width (px) connecting floating islands to the frame.
     bridge_width: int = 8
 
-    # Stroke width for outline layer (px at output resolution)
+    #: Stroke width for the outline layer in pixels at output resolution.
     outline_stroke_width: float = 2.0
 
-    # Minimum cut width in mm (Cricut can cut down to ~0.5 mm)
+    #: Minimum cuttable feature width in mm (Cricut can cut ~0.5 mm).
     min_cut_width_mm: float = 0.8
 
-    # Whether to add registration marks on each layer
+    #: Stamp registration circles onto each layer for multi-layer alignment.
     add_registration_marks: bool = True
 
-    # Registration mark radius in mm
+    #: Radius of registration mark circles in mm.
     reg_mark_radius_mm: float = 3.0
 
-    # Padding around the design in mm
+    #: Clear margin around the design in mm.
     padding_mm: float = 10.0
 
 
 @dataclass
 class OutputConfig:
-    """Output path configuration."""
+    """Output path configuration.
 
-    base_dir: Path = Path("output")
+    All runtime artefacts (images, masks, SVGs) are written under
+    ``base_dir / run_name / <sub-dir>``.
+    """
+
+    #: Root output directory.  Standardised to ``outputs/``.
+    base_dir: Path = field(default_factory=lambda: Path("outputs"))
+
     images_dir: str = "images"
     simplified_dir: str = "simplified"
+    masks_dir: str = "masks"
     svg_dir: str = "svg"
 
+    def run_root(self, run_name: str) -> Path:
+        """Return the root directory for a named run."""
+        return self.base_dir / run_name
+
     def images_path(self, run_name: str) -> Path:
-        """Return the path for generated images of a run."""
+        """Directory for raw generated / reference images."""
         return self.base_dir / run_name / self.images_dir
 
     def simplified_path(self, run_name: str) -> Path:
-        """Return the path for simplified images of a run."""
+        """Directory for simplified (post-processed) images."""
         return self.base_dir / run_name / self.simplified_dir
 
+    def masks_path(self, run_name: str) -> Path:
+        """Directory for per-layer binary mask PNGs."""
+        return self.base_dir / run_name / self.masks_dir
+
     def svg_path(self, run_name: str) -> Path:
-        """Return the path for SVG outputs of a run."""
+        """Directory for exported SVG stencil files."""
         return self.base_dir / run_name / self.svg_dir
+
+    def ensure_run_dirs(self, run_name: str) -> None:
+        """Create all output sub-directories for *run_name* if absent."""
+        for path in (
+            self.images_path(run_name),
+            self.simplified_path(run_name),
+            self.masks_path(run_name),
+            self.svg_path(run_name),
+        ):
+            path.mkdir(parents=True, exist_ok=True)
 
 
 @dataclass
+class BatchConfig:
+    """Parameters specific to batch-factory generation."""
+
+    #: Number of designs to produce per Pokemon entry.
+    count: int = 3
+
+    #: Number of worker processes for parallel generation.
+    #: 1 = sequential (safe on low-RAM machines); >1 uses multiprocessing.
+    workers: int = 1
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Top-level aggregate
+# ─────────────────────────────────────────────────────────────────────────────
+
+@dataclass
 class PipelineConfig:
-    """Top-level pipeline configuration aggregating all sub-configs."""
+    """Top-level configuration aggregating all pipeline sub-configs.
+
+    Pass an instance of this class to ``Pipeline`` or ``BatchRunner``.
+    """
 
     generation: GenerationConfig = field(default_factory=GenerationConfig)
     processing: ProcessingConfig = field(default_factory=ProcessingConfig)
     vector: VectorConfig = field(default_factory=VectorConfig)
     stencil: StencilConfig = field(default_factory=StencilConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
+    batch: BatchConfig = field(default_factory=BatchConfig)
 
-    # Number of designs to generate per Pokemon in batch mode
-    batch_count: int = 3
-
-    # Whether to skip SD generation and use provided reference images directly
+    #: When True the SD generation stage is skipped and reference images are
+    #: used directly as the source for simplification and segmentation.
     skip_generation: bool = False

@@ -1,0 +1,134 @@
+23:47:22 [DEBUG   ] pokemon_stencil.logging_config:97 – Logging initialised (verbose=False, file=outputs/pokemon_stencil.log)
+23:47:22 [DEBUG   ] pokemon_stencil.logging_config:97 – Logging initialised (verbose=True, file=outputs/pokemon_stencil.log)
+23:47:22 [DEBUG   ] pokemon_stencil.logging_config:97 – Logging initialised (verbose=False, file=outputs/pokemon_stencil.log)
+23:47:22 [DEBUG   ] pokemon_stencil.logging_config:97 – Logging initialised (verbose=False, file=outputs/pokemon_stencil.log)
+23:47:22 [DEBUG   ] pokemon_stencil.logging_config:97 – Logging initialised (verbose=False, file=outputs/pokemon_stencil.log)
+23:47:22 [DEBUG   ] pokemon_stencil.logging_config:97 – Logging initialised (verbose=False, file=outputs/pokemon_stencil.log)
+23:47:22 [DEBUG   ] pokemon_stencil.logging_config:97 – Logging initialised (verbose=False, file=outputs/pokemon_stencil.log)
+23:47:22 [INFO    ] pokemon_stencil.cli:169 – Command: generate | pokemon=Pikachu | count=1
+23:47:22 [DEBUG   ] pokemon_stencil.logging_config:97 – Logging initialised (verbose=False, file=outputs/pokemon_stencil.log)
+23:47:22 [INFO    ] pokemon_stencil.cli:331 – Command: batch | config=/tmp/pytest-of-root/pytest-0/test_invalid_json_config_exits0/bad.json | count=3 | workers=1
+23:47:22 [DEBUG   ] pokemon_stencil.logging_config:97 – Logging initialised (verbose=False, file=outputs/pokemon_stencil.log)
+23:47:22 [INFO    ] pokemon_stencil.cli:331 – Command: batch | config=/tmp/pytest-of-root/pytest-0/test_config_missing_name_key_e0/bad.json | count=3 | workers=1
+23:47:22 [DEBUG   ] pokemon_stencil.logging_config:97 – Logging initialised (verbose=False, file=outputs/pokemon_stencil.log)
+23:47:22 [INFO    ] pokemon_stencil.cli:331 – Command: batch | config=/tmp/pytest-of-root/pytest-0/test_workers_option_accepted0/cfg.json | count=3 | workers=2
+23:47:22 [INFO    ] pokemon_stencil.batch.batch_runner:196 – Batch starting: 3 job(s) | workers=2 | skip_generation=False
+23:47:22 [INFO    ] pokemon_stencil.batch.batch_runner:266 – Spawning 2 worker process(es).
+23:47:23 [INFO    ] pokemon_stencil.pipeline:206 – Pipeline.run_from_image | run_name=test_00 | image=/tmp/pytest-of-root/pytest-0/test_creates_output_dirs0/input.png
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.loader:138 – Loaded: /tmp/pytest-of-root/pytest-0/test_creates_output_dirs0/input.png
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:385 – Saved image: /tmp/pytest-of-root/pytest-0/test_creates_output_dirs0/test_00/images/source_000.png
+23:47:23 [INFO    ] pokemon_stencil.pipeline:280 – Stage 3: Style transfer | index=0
+23:47:23 [DEBUG   ] pokemon_stencil.image_gen.style_transfer:60 – Style transfer complete.
+23:47:23 [INFO    ] pokemon_stencil.pipeline:284 – Stage 4: Simplification | index=0
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.simplifier:64 – Simplification complete; output size: (64, 64)
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:292 – Saved simplified image: /tmp/pytest-of-root/pytest-0/test_creates_output_dirs0/test_00/simplified/simplified_img000.png
+23:47:23 [INFO    ] pokemon_stencil.pipeline:295 – Stage 5: Colour segmentation | index=0
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.segmenter:116 – Layer 0 | colour=(102, 255, 51) | pixels=1344 (32.8%)
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.segmenter:116 – Layer 1 | colour=(51, 0, 255) | pixels=1408 (34.4%)
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.segmenter:116 – Layer 2 | colour=(255, 51, 0) | pixels=1344 (32.8%)
+23:47:23 [INFO    ] pokemon_stencil.image_proc.segmenter:128 – Segmentation produced 3 layer(s).
+23:47:23 [INFO    ] pokemon_stencil.pipeline:297 – Produced 3 colour layer(s).
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:328 – Stage 6 (stub): stencil safety | 3 layers | prefix=img000
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:346 – Stages 7-8 (stub): vector tracing | 3 layers | prefix=img000
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:365 – Stage 9 (stub): SVG export | 3 layers | prefix=img000
+23:47:23 [INFO    ] pokemon_stencil.pipeline:228 – Pipeline complete | run_name=test_00 | svg_dir=None
+23:47:23 [INFO    ] pokemon_stencil.pipeline:206 – Pipeline.run_from_image | run_name=test_00 | image=/tmp/pytest-of-root/pytest-0/test_saves_simplified_image0/input.png
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.loader:138 – Loaded: /tmp/pytest-of-root/pytest-0/test_saves_simplified_image0/input.png
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:385 – Saved image: /tmp/pytest-of-root/pytest-0/test_saves_simplified_image0/test_00/images/source_000.png
+23:47:23 [INFO    ] pokemon_stencil.pipeline:280 – Stage 3: Style transfer | index=0
+23:47:23 [DEBUG   ] pokemon_stencil.image_gen.style_transfer:60 – Style transfer complete.
+23:47:23 [INFO    ] pokemon_stencil.pipeline:284 – Stage 4: Simplification | index=0
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.simplifier:64 – Simplification complete; output size: (64, 64)
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:292 – Saved simplified image: /tmp/pytest-of-root/pytest-0/test_saves_simplified_image0/test_00/simplified/simplified_img000.png
+23:47:23 [INFO    ] pokemon_stencil.pipeline:295 – Stage 5: Colour segmentation | index=0
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.segmenter:116 – Layer 0 | colour=(102, 255, 51) | pixels=1344 (32.8%)
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.segmenter:116 – Layer 1 | colour=(51, 0, 255) | pixels=1408 (34.4%)
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.segmenter:116 – Layer 2 | colour=(255, 51, 0) | pixels=1344 (32.8%)
+23:47:23 [INFO    ] pokemon_stencil.image_proc.segmenter:128 – Segmentation produced 3 layer(s).
+23:47:23 [INFO    ] pokemon_stencil.pipeline:297 – Produced 3 colour layer(s).
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:328 – Stage 6 (stub): stencil safety | 3 layers | prefix=img000
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:346 – Stages 7-8 (stub): vector tracing | 3 layers | prefix=img000
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:365 – Stage 9 (stub): SVG export | 3 layers | prefix=img000
+23:47:23 [INFO    ] pokemon_stencil.pipeline:228 – Pipeline complete | run_name=test_00 | svg_dir=None
+23:47:23 [INFO    ] pokemon_stencil.pipeline:206 – Pipeline.run_from_image | run_name=test_00 | image=/tmp/pytest-of-root/pytest-0/test_saves_mask_files0/input.png
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.loader:138 – Loaded: /tmp/pytest-of-root/pytest-0/test_saves_mask_files0/input.png
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:385 – Saved image: /tmp/pytest-of-root/pytest-0/test_saves_mask_files0/test_00/images/source_000.png
+23:47:23 [INFO    ] pokemon_stencil.pipeline:280 – Stage 3: Style transfer | index=0
+23:47:23 [DEBUG   ] pokemon_stencil.image_gen.style_transfer:60 – Style transfer complete.
+23:47:23 [INFO    ] pokemon_stencil.pipeline:284 – Stage 4: Simplification | index=0
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.simplifier:64 – Simplification complete; output size: (64, 64)
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:292 – Saved simplified image: /tmp/pytest-of-root/pytest-0/test_saves_mask_files0/test_00/simplified/simplified_img000.png
+23:47:23 [INFO    ] pokemon_stencil.pipeline:295 – Stage 5: Colour segmentation | index=0
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.segmenter:116 – Layer 0 | colour=(102, 255, 51) | pixels=1344 (32.8%)
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.segmenter:116 – Layer 1 | colour=(51, 0, 255) | pixels=1408 (34.4%)
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.segmenter:116 – Layer 2 | colour=(255, 51, 0) | pixels=1344 (32.8%)
+23:47:23 [INFO    ] pokemon_stencil.image_proc.segmenter:128 – Segmentation produced 3 layer(s).
+23:47:23 [INFO    ] pokemon_stencil.pipeline:297 – Produced 3 colour layer(s).
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:328 – Stage 6 (stub): stencil safety | 3 layers | prefix=img000
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:346 – Stages 7-8 (stub): vector tracing | 3 layers | prefix=img000
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:365 – Stage 9 (stub): SVG export | 3 layers | prefix=img000
+23:47:23 [INFO    ] pokemon_stencil.pipeline:228 – Pipeline complete | run_name=test_00 | svg_dir=None
+23:47:23 [INFO    ] pokemon_stencil.pipeline:206 – Pipeline.run_from_image | run_name=test_00 | image=/tmp/pytest-of-root/pytest-0/test_returns_pipeline_result0/input.png
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.loader:138 – Loaded: /tmp/pytest-of-root/pytest-0/test_returns_pipeline_result0/input.png
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:385 – Saved image: /tmp/pytest-of-root/pytest-0/test_returns_pipeline_result0/test_00/images/source_000.png
+23:47:23 [INFO    ] pokemon_stencil.pipeline:280 – Stage 3: Style transfer | index=0
+23:47:23 [DEBUG   ] pokemon_stencil.image_gen.style_transfer:60 – Style transfer complete.
+23:47:23 [INFO    ] pokemon_stencil.pipeline:284 – Stage 4: Simplification | index=0
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.simplifier:64 – Simplification complete; output size: (64, 64)
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:292 – Saved simplified image: /tmp/pytest-of-root/pytest-0/test_returns_pipeline_result0/test_00/simplified/simplified_img000.png
+23:47:23 [INFO    ] pokemon_stencil.pipeline:295 – Stage 5: Colour segmentation | index=0
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.segmenter:116 – Layer 0 | colour=(102, 255, 51) | pixels=1344 (32.8%)
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.segmenter:116 – Layer 1 | colour=(51, 0, 255) | pixels=1408 (34.4%)
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.segmenter:116 – Layer 2 | colour=(255, 51, 0) | pixels=1344 (32.8%)
+23:47:23 [INFO    ] pokemon_stencil.image_proc.segmenter:128 – Segmentation produced 3 layer(s).
+23:47:23 [INFO    ] pokemon_stencil.pipeline:297 – Produced 3 colour layer(s).
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:328 – Stage 6 (stub): stencil safety | 3 layers | prefix=img000
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:346 – Stages 7-8 (stub): vector tracing | 3 layers | prefix=img000
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:365 – Stage 9 (stub): SVG export | 3 layers | prefix=img000
+23:47:23 [INFO    ] pokemon_stencil.pipeline:228 – Pipeline complete | run_name=test_00 | svg_dir=None
+23:47:23 [INFO    ] pokemon_stencil.pipeline:206 – Pipeline.run_from_image | run_name=test_00 | image=/nonexistent/image.png
+23:47:23 [INFO    ] pokemon_stencil.pipeline:137 – Pipeline.run | run_name=pikachu_00 | pokemon=Pikachu
+23:47:23 [INFO    ] pokemon_stencil.image_proc.loader:75 – Found 1 reference image(s) in /tmp/pytest-of-root/pytest-0/test_run_with_refs0/refs
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.loader:138 – Loaded: /tmp/pytest-of-root/pytest-0/test_run_with_refs0/refs/ref_000.png
+23:47:23 [INFO    ] pokemon_stencil.image_proc.loader:102 – Loaded 1 valid reference image(s).
+23:47:23 [INFO    ] pokemon_stencil.pipeline:145 – Loaded 1 reference image(s).
+23:47:23 [INFO    ] pokemon_stencil.pipeline:154 – Skipping SD generation; using reference images directly.
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:385 – Saved image: /tmp/pytest-of-root/pytest-0/test_run_with_refs0/pikachu_00/images/source_000.png
+23:47:23 [INFO    ] pokemon_stencil.pipeline:280 – Stage 3: Style transfer | index=0
+23:47:23 [DEBUG   ] pokemon_stencil.image_gen.style_transfer:60 – Style transfer complete.
+23:47:23 [INFO    ] pokemon_stencil.pipeline:284 – Stage 4: Simplification | index=0
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.simplifier:64 – Simplification complete; output size: (64, 64)
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:292 – Saved simplified image: /tmp/pytest-of-root/pytest-0/test_run_with_refs0/pikachu_00/simplified/simplified_img000.png
+23:47:23 [INFO    ] pokemon_stencil.pipeline:295 – Stage 5: Colour segmentation | index=0
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.segmenter:116 – Layer 0 | colour=(102, 255, 51) | pixels=1344 (32.8%)
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.segmenter:116 – Layer 1 | colour=(51, 0, 255) | pixels=1408 (34.4%)
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.segmenter:116 – Layer 2 | colour=(255, 51, 0) | pixels=1344 (32.8%)
+23:47:23 [INFO    ] pokemon_stencil.image_proc.segmenter:128 – Segmentation produced 3 layer(s).
+23:47:23 [INFO    ] pokemon_stencil.pipeline:297 – Produced 3 colour layer(s).
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:328 – Stage 6 (stub): stencil safety | 3 layers | prefix=img000
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:346 – Stages 7-8 (stub): vector tracing | 3 layers | prefix=img000
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:365 – Stage 9 (stub): SVG export | 3 layers | prefix=img000
+23:47:23 [INFO    ] pokemon_stencil.pipeline:179 – Pipeline complete | run_name=pikachu_00 | svg_dir=None
+23:47:23 [INFO    ] pokemon_stencil.pipeline:137 – Pipeline.run | run_name=pikachu_00 | pokemon=Pikachu
+23:47:23 [INFO    ] pokemon_stencil.pipeline:137 – Pipeline.run | run_name=pikachu_00 | pokemon=Pikachu
+23:47:23 [INFO    ] pokemon_stencil.image_proc.loader:75 – Found 1 reference image(s) in /tmp/pytest-of-root/pytest-0/test_source_images_saved0/refs
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.loader:138 – Loaded: /tmp/pytest-of-root/pytest-0/test_source_images_saved0/refs/ref_000.png
+23:47:23 [INFO    ] pokemon_stencil.image_proc.loader:102 – Loaded 1 valid reference image(s).
+23:47:23 [INFO    ] pokemon_stencil.pipeline:145 – Loaded 1 reference image(s).
+23:47:23 [INFO    ] pokemon_stencil.pipeline:154 – Skipping SD generation; using reference images directly.
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:385 – Saved image: /tmp/pytest-of-root/pytest-0/test_source_images_saved0/pikachu_00/images/source_000.png
+23:47:23 [INFO    ] pokemon_stencil.pipeline:280 – Stage 3: Style transfer | index=0
+23:47:23 [DEBUG   ] pokemon_stencil.image_gen.style_transfer:60 – Style transfer complete.
+23:47:23 [INFO    ] pokemon_stencil.pipeline:284 – Stage 4: Simplification | index=0
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.simplifier:64 – Simplification complete; output size: (64, 64)
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:292 – Saved simplified image: /tmp/pytest-of-root/pytest-0/test_source_images_saved0/pikachu_00/simplified/simplified_img000.png
+23:47:23 [INFO    ] pokemon_stencil.pipeline:295 – Stage 5: Colour segmentation | index=0
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.segmenter:116 – Layer 0 | colour=(102, 255, 51) | pixels=1344 (32.8%)
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.segmenter:116 – Layer 1 | colour=(51, 0, 255) | pixels=1408 (34.4%)
+23:47:23 [DEBUG   ] pokemon_stencil.image_proc.segmenter:116 – Layer 2 | colour=(255, 51, 0) | pixels=1344 (32.8%)
+23:47:23 [INFO    ] pokemon_stencil.image_proc.segmenter:128 – Segmentation produced 3 layer(s).
+23:47:23 [INFO    ] pokemon_stencil.pipeline:297 – Produced 3 colour layer(s).
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:328 – Stage 6 (stub): stencil safety | 3 layers | prefix=img000
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:346 – Stages 7-8 (stub): vector tracing | 3 layers | prefix=img000
+23:47:23 [DEBUG   ] pokemon_stencil.pipeline:365 – Stage 9 (stub): SVG export | 3 layers | prefix=img000
+23:47:23 [INFO    ] pokemon_stencil.pipeline:179 – Pipeline complete | run_name=pikachu_00 | svg_dir=None
