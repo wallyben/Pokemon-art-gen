@@ -32,10 +32,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import numpy as np
 from PIL import Image
 
 from pokemon_stencil.config import PipelineConfig
 from pokemon_stencil.factory.scoring import StencilScorer
+from pokemon_stencil.image_gen.composition_guidance import (
+    CompositionMode,
+    generate_composition_map,
+)
 from pokemon_stencil.image_gen.generator import PokemonImageGenerator
 from pokemon_stencil.image_gen.style_transfer import StencilStyleTransfer
 from pokemon_stencil.image_proc.loader import ReferenceImageLoader
@@ -289,12 +294,35 @@ class FactoryRunner:
         reference_dir: Optional[Path],
         prompt_extra: str,
     ) -> List[CandidateResult]:
-        """Generate *count* candidates one-by-one in the current process."""
+        """Generate *count* candidates one-by-one in the current process.
+
+        When ``config.generation.use_composition_guidance`` is ``True`` and a
+        *reference_dir* is provided, a composition map is generated once from
+        the first reference image and shared across all candidates.
+        """
+        # ── Stage 1b: Composition guidance map ────────────────────────────────
+        composition_map: Optional[np.ndarray] = None
+        if (
+            self.config.generation.use_composition_guidance
+            and not self.config.skip_generation
+            and reference_dir is not None
+        ):
+            loader = ReferenceImageLoader(
+                target_size=self.config.processing.output_size
+            )
+            ref_images = loader.load_from_directory(reference_dir)
+            if ref_images:
+                composition_map = generate_composition_map(ref_images[0])
+                logger.info(
+                    "Generated composition map from reference image in %s.",
+                    reference_dir,
+                )
+
         results: List[CandidateResult] = []
         for i in range(count):
             try:
                 simplified = self._generate_one(
-                    pokemon_name, i, reference_dir, prompt_extra
+                    pokemon_name, i, reference_dir, prompt_extra, composition_map
                 )
                 score = self._scorer.score(simplified)
                 cand_path = self._candidate_dir() / f"candidate_{i:03d}.png"
@@ -361,12 +389,25 @@ class FactoryRunner:
         candidate_index: int,
         reference_dir: Optional[Path],
         prompt_extra: str,
+        composition_map: Optional[np.ndarray] = None,
     ) -> Image.Image:
         """
         Generate, style-transfer, and simplify one candidate image.
 
         When ``config.skip_generation`` is ``True`` the reference images in
-        *reference_dir* are used directly as source material.
+        *reference_dir* are used directly as source material and
+        *composition_map* is ignored.
+
+        Args:
+            pokemon_name: Canonical Pokémon name.
+            candidate_index: Zero-based index for seed offset.
+            reference_dir: Directory of reference images (required when
+                ``skip_generation=True``).
+            prompt_extra: Additional prompt text.
+            composition_map: Optional structural guide from
+                :func:`~pokemon_stencil.image_gen.composition_guidance.generate_composition_map`.
+                Passed to the generator when SD generation is active and
+                ``config.generation.use_composition_guidance`` is ``True``.
         """
         if self.config.skip_generation:
             if reference_dir is None:
@@ -391,6 +432,7 @@ class FactoryRunner:
                 prompt_extras=prompt_extra,
                 num_images=1,
                 seed=seed,
+                composition_map=composition_map,
             )
             if not imgs:
                 raise RuntimeError(
@@ -494,6 +536,8 @@ def _serialise_config(config: PipelineConfig) -> Dict:
             "device": gen.device,
             "style_suffix": gen.style_suffix,
             "negative_prompt": gen.negative_prompt,
+            "use_composition_guidance": gen.use_composition_guidance,
+            "composition_strength": gen.composition_strength,
         },
         "processing": {
             "bilateral_d": proc.bilateral_d,

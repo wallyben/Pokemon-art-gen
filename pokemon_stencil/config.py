@@ -67,6 +67,14 @@ class GenerationConfig:
         "blurry, watermark, signature, multiple characters"
     )
 
+    #: When True, a composition guidance map is generated from a reference
+    #: image and fed to the generator as structural conditioning.
+    use_composition_guidance: bool = True
+
+    #: Blending strength for composition map conditioning in [0.0, 1.0].
+    #: Higher values follow the structural guide more closely.
+    composition_strength: float = 0.6
+
     @property
     def model_id(self) -> str | Path:
         """Return local path if it exists, otherwise the Hub model ID."""
