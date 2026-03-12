@@ -43,6 +43,10 @@ from pokemon_stencil.image_gen.style_transfer import StencilStyleTransfer
 from pokemon_stencil.image_proc.loader import ReferenceImageLoader
 from pokemon_stencil.image_proc.segmenter import ColourLayer, ColourSegmenter
 from pokemon_stencil.image_proc.simplifier import ImageSimplifier
+from pokemon_stencil.stencil.layer_builder import StencilLayerBuilder
+from pokemon_stencil.stencil.svg_exporter import SVGExporter
+from pokemon_stencil.vector.path_builder import StencilPathBuilder
+from pokemon_stencil.vector.tracer import VectorTracer
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +107,12 @@ class Pipeline:
         self._style_transfer = StencilStyleTransfer(config.processing)
         self._simplifier = ImageSimplifier(config.processing)
         self._segmenter = ColourSegmenter(config.processing)
+
+        # Phase 3 stage objects.
+        self._layer_builder = StencilLayerBuilder(config.stencil)
+        self._tracer = VectorTracer(config.vector)
+        self._path_builder = StencilPathBuilder(self._tracer)
+        self._svg_exporter = SVGExporter(config.vector, config.stencil)
 
         # Generator is lazy-loaded to avoid pulling 4 GB of model weights
         # into RAM when generation is skipped.
@@ -306,67 +316,22 @@ class Pipeline:
             mask_img.save(mask_path)
             result.mask_paths.append(mask_path)
 
-        # ── Stages 6-9: Phase 3 stubs ─────────────────────────────────────────
-        self._stub_stencil_safety(layers, prefix, run_name)
-        self._stub_vector_trace(layers, prefix, run_name)
-        self._stub_svg_export(layers, prefix, run_name, result)
+        # ── Stage 6: Stencil-safety layering ─────────────────────────────────
+        logger.info("Stage 6: Stencil safety | index=%d", image_index)
+        image_size = self.config.processing.output_size
+        safe_layers = self._layer_builder.build(layers, image_size)
 
-    # ── Phase 3 stubs ─────────────────────────────────────────────────────────
+        # ── Stages 7-8: Vector tracing ────────────────────────────────────────
+        logger.info("Stage 7-8: Vector tracing | index=%d", image_index)
+        layer_paths = self._path_builder.build_paths(safe_layers)
 
-    def _stub_stencil_safety(
-        self,
-        layers: List[ColourLayer],
-        prefix: str,
-        run_name: str,
-    ) -> None:
-        """
-        Stage 6 stub: stencil-safety bridge insertion.
-
-        Phase 3 will replace this with ``stencil.layer_builder.StencilLayerBuilder``.
-        Returns the input masks unchanged.
-        """
-        logger.debug(
-            "Stage 6 (stub): stencil safety | %d layers | prefix=%s",
-            len(layers),
-            prefix,
+        # ── Stage 9: SVG export ───────────────────────────────────────────────
+        logger.info("Stage 9: SVG export | index=%d", image_index)
+        svg_dir = self.config.output.svg_path(run_name)
+        svg_paths = self._svg_exporter.export(
+            layer_paths, svg_dir, prefix, image_size
         )
-
-    def _stub_vector_trace(
-        self,
-        layers: List[ColourLayer],
-        prefix: str,
-        run_name: str,
-    ) -> None:
-        """
-        Stages 7-8 stub: vector tracing and path building.
-
-        Phase 3 will replace this with ``vector.tracer.VectorTracer`` and
-        ``vector.path_builder.StencilPathBuilder``.
-        """
-        logger.debug(
-            "Stages 7-8 (stub): vector tracing | %d layers | prefix=%s",
-            len(layers),
-            prefix,
-        )
-
-    def _stub_svg_export(
-        self,
-        layers: List[ColourLayer],
-        prefix: str,
-        run_name: str,
-        result: PipelineResult,
-    ) -> None:
-        """
-        Stage 9 stub: SVG export.
-
-        Phase 3 will replace this with ``stencil.svg_exporter.SVGExporter``
-        and populate ``result.svg_paths``.
-        """
-        logger.debug(
-            "Stage 9 (stub): SVG export | %d layers | prefix=%s",
-            len(layers),
-            prefix,
-        )
+        result.svg_paths.extend(svg_paths)
 
     # ── Utility ───────────────────────────────────────────────────────────────
 

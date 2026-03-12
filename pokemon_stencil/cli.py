@@ -46,6 +46,7 @@ import click
 
 from pokemon_stencil.config import (
     BatchConfig,
+    FactoryConfig,
     GenerationConfig,
     OutputConfig,
     PipelineConfig,
@@ -366,6 +367,114 @@ def cmd_batch(
         f"{summary.failed} failed."
     )
     if summary.failed:
+        sys.exit(1)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# factory command
+# ─────────────────────────────────────────────────────────────────────────────
+
+@main.command("factory")
+@click.argument("pokemon_name", metavar="POKEMON_NAME")
+@click.option(
+    "--refs",
+    default=None,
+    type=click.Path(exists=True, file_okay=False),
+    help="Directory of reference images for this Pokemon.",
+)
+@click.option(
+    "--count",
+    default=10,
+    show_default=True,
+    type=click.IntRange(1, 200),
+    help="Number of candidate artworks to generate.",
+)
+@click.option(
+    "--top-k",
+    default=3,
+    show_default=True,
+    type=click.IntRange(1, 50),
+    help="Number of top-scoring candidates to convert to SVG stencil packs.",
+)
+@click.option(
+    "--workers",
+    default=1,
+    show_default=True,
+    type=click.IntRange(1, 32),
+    help="Number of parallel worker processes for candidate generation.",
+)
+@click.option(
+    "--prompt-extra",
+    default="",
+    help="Additional text appended to the generation prompt.",
+)
+@_common_options
+def cmd_factory(
+    pokemon_name: str,
+    refs: Optional[str],
+    count: int,
+    top_k: int,
+    workers: int,
+    prompt_extra: str,
+    output_dir: str,
+    n_colors: int,
+    steps: int,
+    seed: Optional[int],
+    verbose: bool,
+) -> None:
+    """Generate multiple candidates for POKEMON_NAME and export the best stencils.
+
+    Generates COUNT artwork candidates, scores each for stencil suitability,
+    then converts the TOP_K highest-scoring designs into full SVG stencil packs.
+
+    \b
+    Examples:
+      pokemon-stencil factory Pikachu --refs refs/pikachu --count 20 --top-k 5
+      pokemon-stencil factory Gengar --count 10 --top-k 3 --workers 4
+    """
+    setup_logging(verbose=verbose)
+    logger.info(
+        "Command: factory | pokemon=%s | count=%d | top_k=%d | workers=%d",
+        pokemon_name, count, top_k, workers,
+    )
+
+    config = _build_pipeline_config(
+        output_dir=output_dir,
+        n_colors=n_colors,
+        steps=steps,
+        seed=seed,
+        skip_generation=False,
+    )
+    config.factory.count = count
+    config.factory.top_k = top_k
+    config.factory.workers = workers
+
+    from pokemon_stencil.factory.factory_runner import FactoryRunner
+
+    runner = FactoryRunner(config)
+    refs_path = Path(refs) if refs else None
+
+    try:
+        result = runner.run(
+            pokemon_name=pokemon_name,
+            reference_dir=refs_path,
+            prompt_extra=prompt_extra,
+        )
+    except Exception as exc:
+        logger.error("Factory run failed: %s", exc, exc_info=verbose)
+        click.echo(f"✗ Factory failed: {exc}", err=True)
+        sys.exit(1)
+
+    click.echo(
+        f"\nFactory complete: {result.succeeded} stencil pack(s) exported, "
+        f"{result.failed} error(s)."
+    )
+    for score, run_name in result.ranked:
+        click.echo(f"  ✓ {run_name}  score={score:.3f}")
+    if result.errors:
+        for err_msg in result.errors:
+            click.echo(f"  ✗ {err_msg[:120]}", err=True)
+    if result.failed and not result.succeeded:
         sys.exit(1)
 
 
