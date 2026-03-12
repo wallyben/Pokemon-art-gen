@@ -13,7 +13,14 @@ venv/
 env/
 
 # Runtime outputs (generated files; not committed)
-outputs/*/
+outputs/
+*.log
+
+# Reference images fetched at runtime (not committed)
+refs/
+
+# Environment / secrets
+.env
 
 # Model weights (too large for git; download separately)
 models/sd15/*

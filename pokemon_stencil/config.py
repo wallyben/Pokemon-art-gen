@@ -75,6 +75,13 @@ class GenerationConfig:
     #: Higher values follow the structural guide more closely.
     composition_strength: float = 0.6
 
+    #: When True and the refs directory for the requested Pokémon is empty,
+    #: the factory automatically fetches reference images before generation.
+    auto_fetch_references: bool = False
+
+    #: Maximum number of reference images to fetch per Pokémon.
+    max_reference_images: int = 25
+
     @property
     def model_id(self) -> str | Path:
         """Return local path if it exists, otherwise the Hub model ID."""
@@ -239,6 +246,11 @@ class FactoryConfig:
     #: Parallel worker processes for candidate generation.
     #: 1 = sequential (safe on low-RAM machines); >1 uses multiprocessing.
     workers: int = 1
+
+    #: Cosine similarity threshold for the design diversity filter.
+    #: Candidates with similarity > threshold to any already-selected design
+    #: are rejected.  Range [0, 1]; higher = stricter diversity enforcement.
+    diversity_threshold: float = 0.85
 
 
 # ─────────────────────────────────────────────────────────────────────────────

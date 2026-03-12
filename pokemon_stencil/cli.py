@@ -479,6 +479,96 @@ def cmd_factory(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# fetch-refs command
+# ─────────────────────────────────────────────────────────────────────────────
+
+@main.command("fetch-refs")
+@click.argument("pokemon_name", metavar="POKEMON_NAME")
+@click.option(
+    "--output-dir",
+    default="refs",
+    show_default=True,
+    type=click.Path(file_okay=False, writable=True),
+    help="Root directory for reference images (images go into POKEMON_NAME subdir).",
+)
+@click.option(
+    "--max-images",
+    default=25,
+    show_default=True,
+    type=click.IntRange(1, 200),
+    help="Maximum number of reference images to download.",
+)
+@click.option(
+    "--prepare/--no-prepare",
+    default=True,
+    show_default=True,
+    help="Run prepare step (dedup + normalise) after fetching.",
+)
+@click.option(
+    "--verbose",
+    is_flag=True,
+    default=False,
+    help="Enable DEBUG-level logging.",
+)
+def cmd_fetch_refs(
+    pokemon_name: str,
+    output_dir: str,
+    max_images: int,
+    prepare: bool,
+    verbose: bool,
+) -> None:
+    """Download reference images for POKEMON_NAME from public sources.
+
+    Images are saved to OUTPUT_DIR/POKEMON_NAME/ (e.g. ``refs/pikachu/``).
+    Low-resolution images (<256px) are discarded automatically.
+
+    \b
+    Examples:
+      pokemon-stencil fetch-refs Pikachu
+      pokemon-stencil fetch-refs mr-mime --max-images 10 --output-dir my_refs
+      pokemon-stencil fetch-refs Gengar --no-prepare
+    """
+    setup_logging(verbose=verbose)
+    safe_name = pokemon_name.lower().replace(" ", "-")
+    dest_dir = Path(output_dir) / safe_name
+    logger.info(
+        "Command: fetch-refs | pokemon=%s | dest=%s | max=%d",
+        safe_name, dest_dir, max_images,
+    )
+
+    from pokemon_stencil.data.reference_fetcher import ReferenceImageFetcher
+
+    fetcher = ReferenceImageFetcher(max_images=max_images)
+
+    try:
+        saved = fetcher.fetch_references(pokemon_name, dest_dir)
+    except Exception as exc:
+        logger.error("fetch-refs failed: %s", exc, exc_info=verbose)
+        click.echo(f"✗ Failed to fetch references: {exc}", err=True)
+        raise SystemExit(1)
+
+    if not saved:
+        click.echo(
+            f"✗ No usable images found for '{pokemon_name}'. "
+            "Check the Pokémon name spelling.",
+            err=True,
+        )
+        raise SystemExit(1)
+
+    click.echo(f"Downloaded {len(saved)} image(s) → {dest_dir}")
+
+    if prepare and saved:
+        try:
+            kept = fetcher.prepare_reference_images(dest_dir)
+            click.echo(f"Prepared: {len(kept)} image(s) kept after dedup/normalise.")
+        except Exception as exc:
+            logger.warning("prepare_reference_images failed: %s", exc)
+            click.echo(f"  (prepare step skipped: {exc})", err=True)
+
+    click.echo("Done.")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # inspect command
 # ─────────────────────────────────────────────────────────────────────────────
 
