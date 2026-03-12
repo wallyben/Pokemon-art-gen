@@ -213,6 +213,26 @@ class BatchConfig:
     workers: int = 1
 
 
+@dataclass
+class FactoryConfig:
+    """Parameters for art factory mode (Phase 4).
+
+    The factory generates *count* candidate artworks, scores them for
+    stencil suitability, selects the top *top_k*, and converts only those
+    to full stencil SVG packs.
+    """
+
+    #: Total number of candidate designs to generate.
+    count: int = 10
+
+    #: Number of top-scoring candidates to convert to stencil SVGs.
+    top_k: int = 3
+
+    #: Parallel worker processes for candidate generation.
+    #: 1 = sequential (safe on low-RAM machines); >1 uses multiprocessing.
+    workers: int = 1
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Top-level aggregate
 # ─────────────────────────────────────────────────────────────────────────────
@@ -230,6 +250,7 @@ class PipelineConfig:
     stencil: StencilConfig = field(default_factory=StencilConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     batch: BatchConfig = field(default_factory=BatchConfig)
+    factory: FactoryConfig = field(default_factory=FactoryConfig)
 
     #: When True the SD generation stage is skipped and reference images are
     #: used directly as the source for simplification and segmentation.
