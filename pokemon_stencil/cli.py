@@ -644,6 +644,66 @@ def cmd_inspect(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# dashboard command
+# ─────────────────────────────────────────────────────────────────────────────
+
+@main.command("dashboard")
+@click.option(
+    "--port",
+    default=8501,
+    show_default=True,
+    type=click.IntRange(1024, 65535),
+    help="Port for the Streamlit server.",
+)
+@click.option(
+    "--host",
+    default="localhost",
+    show_default=True,
+    help="Hostname / IP address to bind the Streamlit server to.",
+)
+@click.option(
+    "--browser/--no-browser",
+    default=True,
+    show_default=True,
+    help="Automatically open a browser tab when the dashboard starts.",
+)
+def cmd_dashboard(port: int, host: str, browser: bool) -> None:
+    """Launch the interactive Streamlit dashboard.
+
+    Opens a local browser UI where you can enter a Pokémon name, describe
+    a pose, adjust candidate counts, and generate stencil SVG packs — all
+    without using the command line further.
+
+    \b
+    Examples:
+      pokemon-stencil dashboard
+      pokemon-stencil dashboard --port 8502 --no-browser
+    """
+    import subprocess
+
+    app_path = Path(__file__).parent / "dashboard" / "app.py"
+    if not app_path.exists():
+        click.echo(f"✗ Dashboard app not found at {app_path}", err=True)
+        sys.exit(1)
+
+    cmd = [
+        sys.executable, "-m", "streamlit", "run", str(app_path),
+        "--server.port", str(port),
+        "--server.address", host,
+        "--server.headless", "false" if browser else "true",
+        "--browser.gatherUsageStats", "false",
+    ]
+
+    click.echo(f"Starting dashboard on http://{host}:{port} …")
+    click.echo("Press Ctrl+C to stop.")
+
+    try:
+        subprocess.run(cmd, check=False)
+    except KeyboardInterrupt:
+        click.echo("\nDashboard stopped.")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
