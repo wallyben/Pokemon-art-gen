@@ -2,7 +2,7 @@
 Stencil suitability scorer.
 
 Ranks generated artwork candidates by how well they suit physical stencil
-cutting.  Three complementary metrics are combined into a single normalised
+cutting.  Four complementary metrics are combined into a single normalised
 score in [0, 1].
 
 Metrics
@@ -19,6 +19,11 @@ Metrics
 3. **Contrast score** – grayscale standard deviation.
    Higher contrast produces cleaner K-Means colour segmentation and more
    distinct stencil layers.
+
+4. **Region size penalty** – mean connected-component area.
+   Images dominated by many tiny regions are penalised even when the raw
+   component *count* is moderate.  This catches designs where components are
+   small but numerous enough to evade the count threshold.
 """
 
 from __future__ import annotations
@@ -37,10 +42,14 @@ class StencilScorer:
     """
     Scores a PIL Image for stencil-cutting suitability.
 
+    The overall score is a weighted sum of four metrics, all normalised to
+    [0, 1].  Default weights sum to 1.0.
+
     Args:
-        weight_clarity: Weight applied to the silhouette clarity metric.
-        weight_component: Weight applied to the connected-component metric.
-        weight_contrast: Weight applied to the contrast metric.
+        weight_clarity: Weight for silhouette clarity (default 0.35).
+        weight_component: Weight for connected-component score (default 0.25).
+        weight_contrast: Weight for contrast score (default 0.25).
+        weight_region_size: Weight for region size penalty (default 0.15).
         target_edge_density: Ideal Canny edge-pixel fraction.  Score is
             maximised when edge density equals this value.
         max_small_components: Number of small components at which the
@@ -49,25 +58,31 @@ class StencilScorer:
             a connected region is considered "small".
         contrast_normaliser: Grayscale standard deviation that maps to a
             contrast score of 1.0.
+        mean_area_threshold: Fraction of total pixels that the mean component
+            area must reach for a full region-size score of 1.0.
     """
 
     def __init__(
         self,
-        weight_clarity: float = 0.4,
-        weight_component: float = 0.3,
-        weight_contrast: float = 0.3,
+        weight_clarity: float = 0.35,
+        weight_component: float = 0.25,
+        weight_contrast: float = 0.25,
+        weight_region_size: float = 0.15,
         target_edge_density: float = 0.10,
         max_small_components: int = 20,
         min_component_area_frac: float = 0.002,
         contrast_normaliser: float = 64.0,
+        mean_area_threshold: float = 0.02,
     ) -> None:
         self.weight_clarity = weight_clarity
         self.weight_component = weight_component
         self.weight_contrast = weight_contrast
+        self.weight_region_size = weight_region_size
         self.target_edge_density = target_edge_density
         self.max_small_components = max_small_components
         self.min_component_area_frac = min_component_area_frac
         self.contrast_normaliser = contrast_normaliser
+        self.mean_area_threshold = mean_area_threshold
 
     # ------------------------------------------------------------------
     # Public API
@@ -87,14 +102,16 @@ class StencilScorer:
         s_clarity = self._silhouette_clarity(arr)
         s_component = self._component_score(arr)
         s_contrast = self._contrast_score(arr)
+        s_region = self._region_size_score(arr)
         total = (
             self.weight_clarity * s_clarity
             + self.weight_component * s_component
             + self.weight_contrast * s_contrast
+            + self.weight_region_size * s_region
         )
         logger.debug(
-            "Score: clarity=%.3f component=%.3f contrast=%.3f → %.3f",
-            s_clarity, s_component, s_contrast, total,
+            "Score: clarity=%.3f component=%.3f contrast=%.3f region=%.3f → %.3f",
+            s_clarity, s_component, s_contrast, s_region, total,
         )
         return float(total)
 
@@ -173,3 +190,37 @@ class StencilScorer:
         gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
         std = float(np.std(gray.astype(np.float32)))
         return min(1.0, std / self.contrast_normaliser)
+
+    def _region_size_score(self, arr: np.ndarray) -> float:
+        """
+        Score based on mean connected-component area.
+
+        Images dominated by many tiny regions receive a low score even when
+        the raw component count is moderate.  The mean area is normalised
+        against a threshold fraction of the total image area.
+
+        Args:
+            arr: HxWx3 uint8 RGB array.
+
+        Returns:
+            Score in [0.0, 1.0].  Reaches 1.0 when the mean component area
+            is at least ``mean_area_threshold`` × total pixels.  Returns 1.0
+            when no foreground components are present (nothing to penalise).
+        """
+        gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
+        _, binary = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
+        n_labels, _, stats, _ = cv2.connectedComponentsWithStats(
+            binary, connectivity=8
+        )
+
+        if n_labels <= 1:
+            # Only background – nothing to penalise.
+            return 1.0
+
+        total_px = int(arr.shape[0]) * int(arr.shape[1])
+        areas = [
+            int(stats[i, cv2.CC_STAT_AREA]) for i in range(1, n_labels)
+        ]
+        mean_area = float(np.mean(areas))
+        threshold_px = max(1.0, total_px * self.mean_area_threshold)
+        return min(1.0, mean_area / threshold_px)

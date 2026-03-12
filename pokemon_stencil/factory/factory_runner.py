@@ -241,6 +241,17 @@ class FactoryRunner:
         valid = [c for c in candidates if c.error is None]
         gen_errors = [c.error for c in candidates if c.error is not None]
 
+        # ── Step 2b: Discard candidates below quality threshold ───────────────
+        threshold = self.config.factory.quality_threshold
+        above_threshold = [c for c in valid if c.score >= threshold]
+        discarded = len(valid) - len(above_threshold)
+        if discarded:
+            logger.info(
+                "Discarded %d candidate(s) with score < %.3f.",
+                discarded, threshold,
+            )
+        valid = above_threshold
+
         # ── Step 3: Select top K ──────────────────────────────────────────────
         valid.sort(key=lambda c: c.score, reverse=True)
         selected = valid[:top_k]
@@ -494,6 +505,8 @@ def _serialise_config(config: PipelineConfig) -> Dict:
             "device": gen.device,
             "style_suffix": gen.style_suffix,
             "negative_prompt": gen.negative_prompt,
+            "use_reference_conditioning": gen.use_reference_conditioning,
+            "reference_strength": gen.reference_strength,
         },
         "processing": {
             "bilateral_d": proc.bilateral_d,
@@ -503,6 +516,8 @@ def _serialise_config(config: PipelineConfig) -> Dict:
             "n_colors": proc.n_colors,
             "min_region_area": proc.min_region_area,
             "morph_kernel_size": proc.morph_kernel_size,
+            "morph_open_kernel": proc.morph_open_kernel,
+            "morph_close_kernel": proc.morph_close_kernel,
             "canny_low": proc.canny_low,
             "canny_high": proc.canny_high,
             "output_size": list(proc.output_size),

@@ -69,14 +69,23 @@ def _two_region(h: int = 64, w: int = 64) -> Image.Image:
 class TestStencilScorerInit:
     def test_default_weights_sum_to_one(self):
         s = StencilScorer()
-        total = s.weight_clarity + s.weight_component + s.weight_contrast
+        total = (
+            s.weight_clarity
+            + s.weight_component
+            + s.weight_contrast
+            + s.weight_region_size
+        )
         assert abs(total - 1.0) < 1e-9
 
     def test_custom_weights_stored(self):
-        s = StencilScorer(weight_clarity=0.5, weight_component=0.3, weight_contrast=0.2)
+        s = StencilScorer(
+            weight_clarity=0.5, weight_component=0.3,
+            weight_contrast=0.15, weight_region_size=0.05,
+        )
         assert s.weight_clarity == 0.5
         assert s.weight_component == 0.3
-        assert s.weight_contrast == 0.2
+        assert s.weight_contrast == 0.15
+        assert s.weight_region_size == 0.05
 
     def test_target_edge_density_stored(self):
         s = StencilScorer(target_edge_density=0.15)
@@ -304,7 +313,8 @@ class TestWeightedCombination:
     def test_all_weight_on_contrast_equals_contrast_score(self):
         """With weight_contrast=1 and others=0, score must equal contrast."""
         scorer = StencilScorer(
-            weight_clarity=0.0, weight_component=0.0, weight_contrast=1.0
+            weight_clarity=0.0, weight_component=0.0,
+            weight_contrast=1.0, weight_region_size=0.0,
         )
         img = _gradient()
         arr = np.array(img.convert("RGB"), dtype=np.uint8)
@@ -312,7 +322,8 @@ class TestWeightedCombination:
 
     def test_all_weight_on_clarity_equals_clarity_score(self):
         scorer = StencilScorer(
-            weight_clarity=1.0, weight_component=0.0, weight_contrast=0.0
+            weight_clarity=1.0, weight_component=0.0,
+            weight_contrast=0.0, weight_region_size=0.0,
         )
         img = _two_region()
         arr = np.array(img.convert("RGB"), dtype=np.uint8)
@@ -320,7 +331,8 @@ class TestWeightedCombination:
 
     def test_all_weight_on_component_equals_component_score(self):
         scorer = StencilScorer(
-            weight_clarity=0.0, weight_component=1.0, weight_contrast=0.0
+            weight_clarity=0.0, weight_component=1.0,
+            weight_contrast=0.0, weight_region_size=0.0,
         )
         img = _solid()
         arr = np.array(img.convert("RGB"), dtype=np.uint8)

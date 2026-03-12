@@ -67,6 +67,14 @@ class GenerationConfig:
         "blurry, watermark, signature, multiple characters"
     )
 
+    #: When True, reference images are used to condition generation via the
+    #: ReferenceEncoder, improving character identity preservation.
+    use_reference_conditioning: bool = True
+
+    #: Strength of reference conditioning in image-to-image generation.
+    #: 0.0 = fully reproduce reference; 1.0 = fully ignore reference.
+    reference_strength: float = 0.6
+
     @property
     def model_id(self) -> str | Path:
         """Return local path if it exists, otherwise the Hub model ID."""
@@ -96,6 +104,12 @@ class ProcessingConfig:
 
     # ── Morphological cleanup ─────────────────────────────────────────────────
     morph_kernel_size: int = 5
+
+    #: Kernel size for morphological opening (removes thin slivers/noise).
+    morph_open_kernel: int = 3
+
+    #: Kernel size for morphological closing (fills small holes in masks).
+    morph_close_kernel: int = 3
 
     # ── Edge detection (informational; not used in stencil paths) ─────────────
     canny_low: int = 50
@@ -137,6 +151,12 @@ class StencilConfig:
 
     #: Minimum bridge width (px) connecting floating islands to the frame.
     bridge_width: int = 8
+
+    #: Minimum feature width in pixels.  Regions thinner than this are dilated.
+    min_cut_width_px: int = 3
+
+    #: Bridge width in pixels for improved island-to-region bridging.
+    bridge_width_px: int = 3
 
     #: Stroke width for the outline layer in pixels at output resolution.
     outline_stroke_width: float = 2.0
@@ -231,6 +251,10 @@ class FactoryConfig:
     #: Parallel worker processes for candidate generation.
     #: 1 = sequential (safe on low-RAM machines); >1 uses multiprocessing.
     workers: int = 1
+
+    #: Minimum score a candidate must achieve to be considered for stencil
+    #: conversion.  Candidates below this threshold are automatically discarded.
+    quality_threshold: float = 0.35
 
 
 # ─────────────────────────────────────────────────────────────────────────────

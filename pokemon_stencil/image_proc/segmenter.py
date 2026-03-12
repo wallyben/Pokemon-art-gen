@@ -170,16 +170,67 @@ class ColourSegmenter:
 
     def _clean_mask(self, mask: np.ndarray) -> np.ndarray:
         """
-        Apply morphological operations to clean up the binary mask.
+        Apply morphological operations and component filtering to clean a mask.
 
-        Removes thin slivers and fills small holes so each layer forms
-        solid, cuttable regions.
+        Pipeline:
+        1. Morphological opening with ``morph_open_kernel`` – removes thin
+           slivers and isolated noise pixels before the mask is finalised.
+        2. Morphological closing with ``morph_close_kernel`` – fills small
+           holes so each colour region forms a solid, cuttable shape.
+        3. Connected-component filtering – removes any remaining fragments
+           smaller than ``min_region_area`` pixels that survived the
+           morphological passes.
+
+        Args:
+            mask: Binary uint8 mask (0 or 255), shape (H, W).
+
+        Returns:
+            Cleaned binary uint8 mask (values are 0 or 255).
         """
-        k = self.config.morph_kernel_size
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-        return mask
+        k_open = self.config.morph_open_kernel
+        kernel_open = cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE, (k_open, k_open)
+        )
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel_open)
+
+        k_close = self.config.morph_close_kernel
+        kernel_close = cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE, (k_close, k_close)
+        )
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_close)
+
+        mask = self._remove_small_components(mask)
+        return mask.astype(np.uint8)
+
+    def _remove_small_components(self, mask: np.ndarray) -> np.ndarray:
+        """
+        Remove connected components smaller than ``config.min_region_area``.
+
+        Morphological operations can split a region into tiny fragments.
+        This step ensures no sub-threshold fragment survives into the final
+        stencil layer, preventing un-cuttable stencil pieces.
+
+        Args:
+            mask: Binary uint8 mask (0 or 255).
+
+        Returns:
+            Mask with small components zeroed out (uint8, 0 or 255).
+        """
+        n_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
+            mask, connectivity=8
+        )
+        result = np.zeros_like(mask, dtype=np.uint8)
+        min_area = self.config.min_region_area
+        for i in range(1, n_labels):  # label 0 = background
+            area = int(stats[i, cv2.CC_STAT_AREA])
+            if area >= min_area:
+                result[labels == i] = 255
+            else:
+                logger.debug(
+                    "Component %d removed by size filter (area=%d < %d)",
+                    i, area, min_area,
+                )
+        return result
 
     @staticmethod
     def _rgb_to_lab(arr_rgb: np.ndarray) -> np.ndarray:
