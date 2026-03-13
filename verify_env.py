@@ -101,6 +101,26 @@ def _check_no_pypotrace() -> None:
         print(f"{_PASS}  {'pypotrace absent':25s} not installed (correct — OpenCV fallback active)")
 
 
+def _check_fal_provider() -> None:
+    """Check whether the fal.ai cloud provider is configured."""
+    import os
+    try:
+        import fal_client  # noqa: F401
+        fal_installed = True
+    except ImportError:
+        fal_installed = False
+
+    fal_key = bool(os.environ.get("FAL_KEY"))
+
+    if fal_installed and fal_key:
+        print(f"{_PASS}  {'fal.ai provider':25s} ready (fal-client installed + FAL_KEY set)")
+    elif fal_installed and not fal_key:
+        print(f"  ℹ  {'fal.ai provider':25s} fal-client installed but FAL_KEY not set")
+        print(f"       Set with: $env:FAL_KEY = 'your-key'  (get at https://fal.ai/dashboard/keys)")
+    elif not fal_installed:
+        print(f"  ℹ  {'fal.ai provider':25s} not installed (pip install fal-client)")
+
+
 def _check_project_imports() -> None:
     """Verify core project modules import cleanly."""
     modules = [
@@ -110,6 +130,9 @@ def _check_project_imports() -> None:
         ("lora_validator", "pokemon_stencil.models.lora_validator"),
         ("prompt_engine", "pokemon_stencil.image_gen.prompt_engine"),
         ("generator", "pokemon_stencil.image_gen.generator"),
+        ("generation.base", "pokemon_stencil.generation.base"),
+        ("generation.prompt_builder", "pokemon_stencil.generation.prompt_builder"),
+        ("generation.candidate_runner", "pokemon_stencil.generation.candidate_runner"),
     ]
     for label, mod_path in modules:
         try:
@@ -155,6 +178,9 @@ def main() -> int:
     _check("click", "click")
     _check("svgwrite", "svgwrite")
     _check("requests", "requests")
+
+    print("\n── Cloud generation provider ──────────────────────────────")
+    _check_fal_provider()
 
     print("\n── Compatibility checks ───────────────────────────────────")
     _check_peft_accelerate_compat()

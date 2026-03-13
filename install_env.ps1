@@ -110,16 +110,25 @@ Write-Host "============================================================" -Foreg
 Write-Host " Installation complete!" -ForegroundColor Green
 Write-Host "============================================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "Next steps:" -ForegroundColor Cyan
+Write-Host "QUICKEST PATH — Cloud generation (no GPU needed):" -ForegroundColor Cyan
+Write-Host "  1. Activate the venv:     .\.venv\Scripts\Activate.ps1"
+Write-Host "  2. Set your fal.ai key:   `$env:FAL_KEY = 'your-key-here'"
+Write-Host "     Get key at:            https://fal.ai/dashboard/keys"
+Write-Host "  3. Run smoke test:        python smoke_test.py"
+Write-Host "  4. Launch dashboard:      streamlit run pokemon_stencil\dashboard\app.py"
+Write-Host ""
+Write-Host "Full local GPU path:" -ForegroundColor Yellow
 Write-Host "  1. Activate the venv:     .\.venv\Scripts\Activate.ps1"
 Write-Host "  2. Verify environment:    python verify_env.py"
-Write-Host "  3. Run tests:             python run_all_tests.py"
+Write-Host "  3. Run smoke test:        python smoke_test.py"
 Write-Host "  4. Download models:       python -c `"from pokemon_stencil.models.model_manager import ModelManager; ModelManager().ensure_models()`""
-Write-Host "  5. Place SDXL LoRA:       Copy an SDXL .safetensors LoRA to models\lora\"
+Write-Host "  5. (Optional) SDXL LoRA:  Copy an SDXL .safetensors LoRA to models\lora\"
+Write-Host "     Scan LoRAs:            python scan_loras.py"
 Write-Host "  6. Launch dashboard:      streamlit run pokemon_stencil\dashboard\app.py"
 Write-Host ""
 Write-Host "GPU notes:" -ForegroundColor Yellow
 Write-Host "  - For CUDA: re-run with .\install_env.ps1 -CUDA (CUDA 11.8)"
 Write-Host "  - For CUDA 12.1: re-run with .\install_env.ps1 -CUDA121"
-Write-Host "  - Set torch_dtype='float16' in config for GPU acceleration"
+Write-Host "  - Set local_torch_dtype='float16' in ProviderConfig for GPU acceleration"
+Write-Host "  - CPU inference is very slow (hours per image) — use fal.ai for CPU machines"
 Write-Host ""

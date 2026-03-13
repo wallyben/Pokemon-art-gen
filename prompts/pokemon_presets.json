@@ -1,0 +1,80 @@
+{
+  "_comment": "Pokemon character presets for PokemonPromptBuilder. Add any Pokemon here.",
+  "_format": "Each key is the lowercased Pokemon name. Colours, body, features are used in prompts.",
+
+  "pikachu": {
+    "colours": "bright yellow body with brown stripes on its back and red circular cheek pouches",
+    "body": "small chubby mouse-like body with very large pointy ears tipped with black",
+    "features": "distinctive lightning bolt-shaped yellow and brown tail, small round black eyes, stubby arms"
+  },
+  "charizard": {
+    "colours": "orange body with cream-white underside, teal-blue wing membranes",
+    "body": "large bipedal fire-breathing dragon with broad wings and muscular build",
+    "features": "flame burning at tail tip, two cream-coloured horns, sharp claws, long neck"
+  },
+  "bulbasaur": {
+    "colours": "blue-green teal body with dark teal spots, red eyes",
+    "body": "small quadruped dinosaur-like creature with a large green plant bulb on its back",
+    "features": "bulb with visible thick veins on its back, stubby legs, short wide snout"
+  },
+  "squirtle": {
+    "colours": "light blue body with pale yellow front plastron, brown shell with a spiral ridge pattern",
+    "body": "small bipedal turtle with a rounded shell on its back and stubby arms",
+    "features": "curly swirl-shaped tail, large round eyes, small ears, segmented brown shell"
+  },
+  "charmander": {
+    "colours": "orange body with cream-white belly, red-orange flame at tail tip",
+    "body": "small bipedal lizard-like dinosaur with a long tail ending in a flame",
+    "features": "always-burning tail flame, large expressive eyes, small claws, cream underbelly"
+  },
+  "mewtwo": {
+    "colours": "pale lavender-grey body with purple details, large intense purple eyes",
+    "body": "tall bipedal humanoid with a very large head, slender body, and long thick tail",
+    "features": "tube connecting from neck to back of skull, defined muscle lines, three-fingered hands"
+  },
+  "gengar": {
+    "colours": "deep purple body with lighter purple round belly, small red glowing eyes",
+    "body": "round wide-bodied ghost-type with a wide jagged grinning mouth full of teeth",
+    "features": "spiky back protrusions, stubby arms with three claws, pointed ears, shadowy undefined form"
+  },
+  "eevee": {
+    "colours": "warm light brown fur, cream-white fluffy collar ruff and bushy tail tip",
+    "body": "small fox-like quadruped with oversized pointy ears and large soulful brown eyes",
+    "features": "fluffy cream bushy tail, small dainty paws, tuft on forehead, cute round face"
+  },
+  "snorlax": {
+    "colours": "teal-green body with cream-white round belly, tiny dark beady eyes",
+    "body": "enormous rotund bear-like creature, extremely round large belly dominates the form",
+    "features": "tiny hands and feet relative to enormous body, ears folded back, perpetually drowsy expression"
+  },
+  "lucario": {
+    "colours": "blue and black body with yellow chest spike, red eyes",
+    "body": "tall bipedal jackal-like with dreadlock-style appendages from the back of its head",
+    "features": "yellow spike on chest, blue-tipped black appendages on head, blue and black thighs, aura-user"
+  },
+  "umbreon": {
+    "colours": "sleek black body with glowing yellow ring markings on ears, tail, forehead, and body",
+    "body": "medium cat-like quadruped with long pointy ears, lithe muscular body, long tail",
+    "features": "circular glowing yellow ring bands on all body segments, glowing red eyes, smooth sleek form"
+  },
+  "gyarados": {
+    "colours": "deep blue serpentine body with white underbelly, yellow whiskers, red eyes",
+    "body": "enormous sea serpent with a massive jaw, fins, and hundreds of scales",
+    "features": "large fanged open jaw, head fins, barbels extending from mouth, coiling serpentine body"
+  },
+  "dragonite": {
+    "colours": "orange body with cream-white underbelly, small cream-coloured wings relative to body",
+    "body": "large rotund friendly-looking dragon, bipedal with small wings and a round pudgy body",
+    "features": "antenna-like horns, surprisingly small wings for its body size, friendly round face"
+  },
+  "blastoise": {
+    "colours": "blue body with pale yellow front shell, brown shell with two large water cannons",
+    "body": "large bipedal turtle with an enormous thick shell featuring two mechanical water cannons",
+    "features": "two large retractable cannon barrels on shell, small tail, determined expression"
+  },
+  "meowth": {
+    "colours": "cream-coloured body with brown tail tip, gold coin on forehead",
+    "body": "small bipedal cat-like creature with a coin on its head and a curled tail",
+    "features": "gold yen coin on forehead, large round eyes, small paws, curling coin-tip tail"
+  }
+}

@@ -58,3 +58,10 @@ requests>=2.31.0
 
 # ── Version compatibility checking (verify_env.py) ───────────────────────────
 packaging>=23.0
+
+# ── Cloud generation provider (primary, no GPU needed) ───────────────────────
+# fal.ai Python client for FLUX.1 Dev generation.
+# Set FAL_KEY environment variable to enable cloud generation.
+# Get key at: https://fal.ai/dashboard/keys
+# Optional: system still works without this (falls back to local SDXL).
+fal-client>=0.10.0

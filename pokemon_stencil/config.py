@@ -12,7 +12,13 @@ Directory conventions
 - Pre-downloaded model weights are expected under ``models/`` so the
   pipeline can run fully offline.
 
-Model stack (v3 – SDXL upgrade)
+Generation backends (ProviderConfig)
+--------------------------------------
+- "auto"  : fal.ai if FAL_KEY set, else local SDXL  ← recommended
+- "fal"   : fal.ai FLUX.1 Dev (cloud, no GPU, set FAL_KEY)
+- "local" : local SDXL + ControlNet + IP-Adapter stack
+
+Model stack (local SDXL — fallback)
 ---------------------------------
 - Base model:              stabilityai/stable-diffusion-xl-base-1.0
 - Pipeline:                StableDiffusionXLControlNetPipeline
@@ -20,10 +26,6 @@ Model stack (v3 – SDXL upgrade)
 - ControlNet Canny:        diffusers/controlnet-canny-sdxl-1.0
 - IP-Adapter:              h94/IP-Adapter (SDXL variant)
 - LoRA:                    optional character-enhancement LoRA (models/lora/)
-
-Legacy SD 1.5 ControlNet IDs kept as constants for reference:
-- lllyasviel/control_v11p_sd15_openpose
-- lllyasviel/control_v11p_sd15_canny
 """
 
 from __future__ import annotations
@@ -354,9 +356,52 @@ class FactoryConfig:
 # ─────────────────────────────────────────────────────────────────────────────
 
 @dataclass
+class ProviderConfig:
+    """Configuration for the generation backend (provider abstraction layer).
+
+    provider choices:
+        "auto"  — try fal.ai first (if FAL_KEY set), fall back to local SDXL.
+        "fal"   — fal.ai FLUX.1 Dev.  Requires FAL_KEY env var + fal-client.
+        "local" — local SDXL stack.  Requires torch + diffusers + GPU.
+
+    fal.ai setup (fastest, no GPU needed):
+        pip install fal-client
+        $env:FAL_KEY = "your-key"  # PowerShell
+        Get key: https://fal.ai/dashboard/keys
+
+    n_candidates:
+        How many images to generate per run.  Best n_top are kept.
+        Lower for speed; higher for quality selection.
+    """
+
+    provider: str = "auto"          # "auto" | "fal" | "local"
+
+    # ── Candidate generation ──────────────────────────────────────────────────
+    n_candidates: int = 8
+    n_top: int = 3
+
+    # ── Generation parameters ─────────────────────────────────────────────────
+    num_steps: int = 28
+    guidance_scale: float = 3.5
+    reference_strength: float = 0.80
+    seed: Optional[int] = None
+
+    # ── fal.ai specific ───────────────────────────────────────────────────────
+    fal_model: str = "fal-ai/flux/dev"
+    fal_img2img_model: str = "fal-ai/flux/dev/image-to-image"
+
+    # ── Local SDXL specific ───────────────────────────────────────────────────
+    local_lora_path: Optional[Path] = None
+    local_lora_scale: float = 0.8
+    local_use_ip_adapter: bool = True
+    local_torch_dtype: str = "float32"   # "float32" (CPU) or "float16" (GPU)
+
+
+@dataclass
 class PipelineConfig:
     """Top-level configuration aggregating all pipeline sub-configs."""
 
+    provider: ProviderConfig = field(default_factory=ProviderConfig)
     generation: GenerationConfig = field(default_factory=GenerationConfig)
     processing: ProcessingConfig = field(default_factory=ProcessingConfig)
     vector: VectorConfig = field(default_factory=VectorConfig)
