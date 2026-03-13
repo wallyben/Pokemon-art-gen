@@ -162,15 +162,61 @@ class ModelManager:
         return results
 
     def list_loras(self) -> List[Path]:
-        """Return all ``.safetensors`` files in the LoRA directory."""
+        """
+        Return all top-level ``.safetensors`` files in the LoRA directory.
+
+        Only direct children of the lora directory are returned — cache
+        subdirectories (``.cache/``), lock files (``.lock``), and metadata
+        files (``.meta``) are excluded by design (non-recursive glob).
+        """
         lora_dir = self._lora_dir()
         if not lora_dir.is_dir():
             return []
-        return sorted(lora_dir.glob("*.safetensors"))
+        # Non-recursive: only direct children with .safetensors extension.
+        # This excludes .cache/, .lock, .meta and other non-model files.
+        return sorted(
+            p for p in lora_dir.iterdir()
+            if p.is_file() and p.suffix.lower() == ".safetensors"
+        )
 
     def lora_names(self) -> List[str]:
         """Return human-readable names (stems) of available LoRA files."""
         return [p.stem for p in self.list_loras()]
+
+    def list_loras_validated(self) -> List[Path]:
+        """
+        Return only LoRA files that pass SDXL compatibility validation.
+
+        This is a strict subset of ``list_loras()``: any SD1.5, ambiguous,
+        or corrupt LoRA files are silently excluded.  Use this when you want
+        to populate a UI dropdown with only safe, usable LoRAs.
+
+        Returns:
+            Sorted list of ``Path`` objects for SDXL-compatible LoRAs.
+        """
+        try:
+            from pokemon_stencil.models.lora_validator import validate_lora_sdxl_compatible
+        except ImportError:
+            logger.warning(
+                "lora_validator not available; returning all LoRAs unvalidated."
+            )
+            return self.list_loras()
+
+        validated: List[Path] = []
+        for lora_path in self.list_loras():
+            ok, msg = validate_lora_sdxl_compatible(lora_path)
+            if ok:
+                validated.append(lora_path)
+            else:
+                logger.debug(
+                    "LoRA '%s' excluded from validated list: %s",
+                    lora_path.name, msg,
+                )
+        return validated
+
+    def lora_names_validated(self) -> List[str]:
+        """Return stems of SDXL-compatible LoRA files only."""
+        return [p.stem for p in self.list_loras_validated()]
 
     # ── Internal helpers ───────────────────────────────────────────────────────
 

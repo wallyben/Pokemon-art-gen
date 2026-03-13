@@ -5,7 +5,7 @@ Upgraded for the SDXL + IP-Adapter + ControlNet pipeline:
 - Model selection (SDXL / legacy DreamShaper)
 - Reference images preview
 - Pose reference image upload
-- LoRA model selection from models/lora/
+- LoRA model selection from models/lora/ (SDXL-only files shown)
 - Generation seed control
 - Prompt optimisation toggle
 - IP-Adapter toggle
@@ -28,10 +28,11 @@ Sidebar
     • Generation seed
     • Candidate count slider (1–20)
     • Top results slider (1–5)
-    • LoRA selection dropdown
+    • LoRA selection dropdown (pre-validated SDXL only)
     • Pose reference image upload
     • Auto-fetch references toggle
     • Output directory
+    • Clear Pipeline Cache button
 
 Main panel
     • Stage-by-stage progress bar + status label
@@ -39,6 +40,16 @@ Main panel
     • Reference images preview grid
     • Candidate preview grid (all generated candidates)
     • Generation results grid with SVG downloads
+
+LoRA safety rules (enforced in this module)
+--------------------------------------------
+* "None (no LoRA)" selection  → lora_path = None  (never loads a LoRA)
+* File missing from disk       → lora_path = None
+* Non-.safetensors file        → lora_path = None
+* SDXL validation fails        → lora_name = None in sidebar; lora_path = None
+* Pre-flight check fails       → generation blocked with clear error message
+* model_loader fallback mode   → LoRA failure at load time never crashes generation;
+                                  pipeline continues in pure SDXL mode
 """
 
 from __future__ import annotations
@@ -98,6 +109,11 @@ def _get_sdxl_pipeline(
 
     Parameters are intentionally primitive (strings, bools, floats) so that
     Streamlit can hash them as a stable cache key.
+
+    LoRA safety: ``lora_path_str`` is included in the Streamlit cache key.
+    An empty string means "no LoRA". Even when lora_path_str is non-empty,
+    model_loader's ``_apply_lora_safe`` may fall back to pure SDXL mode if
+    the LoRA is incompatible — the returned pipeline is always safe to use.
     """
     from pokemon_stencil.config import (
         DEFAULT_CONTROLNET_CANNY_HUB_ID,
@@ -200,9 +216,25 @@ class _ProgressFactoryRunner(FactoryRunner):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _get_available_loras() -> List[str]:
-    """Return available LoRA names from the default lora directory."""
-    manager = ModelManager()
-    names = manager.lora_names()
+    """
+    Return available LoRA names from the default lora directory.
+
+    Only top-level ``.safetensors`` files are listed.
+    Cache subdirectories (``.cache/``, lock files, meta files) are ignored.
+    Files are listed without pre-validating SDXL compatibility — the sidebar
+    will show a clear error for any SD1.5 / invalid file the user selects.
+    """
+    lora_dir = DEFAULT_LORA_DIR
+    if not lora_dir.is_dir():
+        return [_LORA_NONE_LABEL]
+
+    # Only direct children (non-recursive) with .safetensors extension.
+    # This explicitly excludes .lock, .meta, and cache subdirectory files.
+    names = sorted(
+        p.stem
+        for p in lora_dir.iterdir()
+        if p.is_file() and p.suffix.lower() == ".safetensors"
+    )
     return [_LORA_NONE_LABEL] + names
 
 
@@ -217,7 +249,17 @@ def _build_config(
     use_ip_adapter: bool = False,
     lora_name: Optional[str] = None,
 ) -> PipelineConfig:
-    """Construct a PipelineConfig for dashboard use."""
+    """
+    Construct a PipelineConfig for dashboard use.
+
+    LoRA path resolution:
+    1. ``lora_name = None``                        → lora_path = None
+    2. ``lora_name = _LORA_NONE_LABEL``            → lora_path = None
+    3. File not found in DEFAULT_LORA_DIR          → lora_path = None
+    4. File found                                  → lora_path = candidate path
+       (SDXL compatibility is checked in _render_sidebar; at this point
+        lora_name has already been nullified if the LoRA is invalid)
+    """
     lora_path: Optional[Path] = None
     if lora_name and lora_name != _LORA_NONE_LABEL:
         candidate = DEFAULT_LORA_DIR / f"{lora_name}.safetensors"
@@ -403,9 +445,9 @@ def _render_sidebar() -> dict:
         options=available_loras,
         index=0,
         help=(
-            "Select a character-specific LoRA from models/lora/. "
+            "Select an SDXL-compatible LoRA from models/lora/. "
             "Place .safetensors files in that directory to enable this option. "
-            "LoRA weights are merged into the pipeline for character refinement."
+            "SD1.5 or incompatible LoRAs will be blocked with a clear error."
         ),
     )
     lora_name: Optional[str] = (
@@ -413,30 +455,50 @@ def _render_sidebar() -> dict:
     )
 
     # ── LoRA validation feedback ───────────────────────────────────────────────
+    lora_validation_msg: Optional[str] = None
+    lora_valid: bool = False
+
     if lora_name:
         _lora_file = DEFAULT_LORA_DIR / f"{lora_name}.safetensors"
-        try:
-            from pokemon_stencil.models.lora_validator import validate_lora_sdxl_compatible
-            _lora_ok, _lora_msg = validate_lora_sdxl_compatible(_lora_file)
-        except Exception:
-            _lora_ok, _lora_msg = False, "LoRA validator unavailable."
-        if _lora_ok:
-            st.sidebar.success(f"✅ LoRA: `{lora_name}.safetensors` (SDXL-compatible)")
+        if not _lora_file.exists():
+            # File was listed in the dropdown but disappeared from disk
+            st.sidebar.error(
+                f"❌ LoRA file missing: `{lora_name}.safetensors` — "
+                "file was removed from `models/lora/`. Falling back to no LoRA."
+            )
+            lora_name = None  # File missing — block
         else:
-            st.sidebar.error(f"❌ LoRA invalid: {_lora_msg}")
-            lora_name = None  # Block invalid LoRA from reaching the pipeline
-    elif is_sdxl and len(available_loras) == 1:
-        # No LoRA files at all — warn explicitly for SDXL accuracy path
-        st.sidebar.warning(
-            "⚠️ No SDXL LoRA found in `models/lora/`. "
-            "Generation quality will not meet expected Pokémon accuracy. "
-            "Place an SDXL-compatible `.safetensors` LoRA in that directory."
-        )
-    elif not is_sdxl and len(available_loras) == 1:
-        st.sidebar.caption(
-            "No LoRA files found. Place `.safetensors` files in `models/lora/` "
-            "to enable character-specific refinement."
-        )
+            try:
+                from pokemon_stencil.models.lora_validator import validate_lora_sdxl_compatible
+                _lora_ok, _lora_msg = validate_lora_sdxl_compatible(_lora_file)
+            except Exception as _val_exc:
+                _lora_ok, _lora_msg = False, f"LoRA validator error: {_val_exc}"
+
+            if _lora_ok:
+                lora_valid = True
+                lora_validation_msg = _lora_msg
+                st.sidebar.success(f"✅ LoRA: `{lora_name}.safetensors` (SDXL-compatible)")
+            else:
+                st.sidebar.error(
+                    f"❌ LoRA invalid (SD1.5 or incompatible): {_lora_msg}\n\n"
+                    "**Generation will run in pure SDXL mode (no LoRA).**"
+                )
+                lora_name = None  # Block invalid LoRA from reaching the pipeline
+
+    if lora_name is None:
+        if is_sdxl and len(available_loras) == 1:
+            # No LoRA files at all — warn explicitly for SDXL accuracy path
+            st.sidebar.warning(
+                "⚠️ No SDXL LoRA found in `models/lora/`. "
+                "Generation will run in pure SDXL mode. "
+                "Place an SDXL-compatible `.safetensors` LoRA in that directory "
+                "for better Pokémon character accuracy."
+            )
+        elif not is_sdxl and len(available_loras) == 1:
+            st.sidebar.caption(
+                "No LoRA files found. Place `.safetensors` files in `models/lora/` "
+                "to enable character-specific refinement."
+            )
 
     pose_reference = st.sidebar.file_uploader(
         "Pose reference image (optional)",
@@ -462,6 +524,23 @@ def _render_sidebar() -> dict:
         help="Root directory for all generated files.",
     )
 
+    # ── Clear pipeline cache button ────────────────────────────────────────────
+    st.sidebar.divider()
+    st.sidebar.subheader("⚙️ Advanced")
+    if st.sidebar.button(
+        "Clear Pipeline Cache",
+        help=(
+            "Evict all cached pipeline instances and force a fresh model load. "
+            "Use this if you encounter unexpected generation errors, change LoRA "
+            "settings, or after updating model files on disk."
+        ),
+    ):
+        from pokemon_stencil.models.model_loader import clear_pipeline_cache
+        clear_pipeline_cache()
+        # Also clear the Streamlit-level cache
+        st.cache_resource.clear()
+        st.sidebar.success("✅ Pipeline cache cleared. Models will reload on next generation.")
+
     return dict(
         pokemon_name=pokemon_name,
         prompt=prompt,
@@ -478,6 +557,8 @@ def _render_sidebar() -> dict:
         seed=seed,
         pose_reference=pose_reference,
         lora_name=lora_name,
+        lora_valid=lora_valid,
+        lora_validation_msg=lora_validation_msg,
     )
 
 
@@ -637,10 +718,14 @@ def main() -> None:
     controlnet_status = "✅ ControlNet on" if inputs["use_controlnet"] else "⚠️ ControlNet off"
     ipa_status = "✅ IP-Adapter on" if inputs["use_ip_adapter"] else "⚠️ IP-Adapter off"
     _sdxl_loaded = "✅ SDXL loaded" if inputs["is_sdxl"] else f"⚠️ Legacy: {inputs['model_label']}"
-    if inputs["lora_name"]:
+
+    if inputs["lora_name"] and inputs["lora_valid"]:
         lora_status = f"✅ LoRA: `{inputs['lora_name']}`"
+    elif inputs["is_sdxl"]:
+        lora_status = "⚠️ Pure SDXL (no LoRA)"
     else:
-        lora_status = "❌ No SDXL LoRA" if inputs["is_sdxl"] else "No LoRA"
+        lora_status = "No LoRA"
+
     st.info(
         f"**{_sdxl_loaded}**  |  {controlnet_status}  |  "
         f"{ipa_status}  |  **{lora_status}**  |  "
@@ -648,13 +733,13 @@ def main() -> None:
         f"**Seed:** {inputs['seed'] if inputs['seed'] is not None else 'random'}"
     )
 
-    # ── LoRA accuracy warning (non-blocking) ──────────────────────────────────
+    # ── LoRA info / accuracy warning ──────────────────────────────────────────
     if inputs["is_sdxl"] and not inputs["lora_name"]:
         st.warning(
-            "⚠️ **No valid SDXL LoRA found.** Generation quality will not meet "
-            "expected Pokémon accuracy.  "
+            "⚠️ **Running in pure SDXL mode (no LoRA).** "
+            "Generation will still work — but character accuracy may be lower. "
             "Place an SDXL-compatible `.safetensors` LoRA in `models/lora/` "
-            "before generating for best results."
+            "for best Pokémon character accuracy."
         )
 
     _render_reference_preview(inputs["pokemon_name"])
@@ -692,6 +777,40 @@ def main() -> None:
     output_dir: Path = inputs["output_dir"]
     auto_fetch: bool = inputs["auto_fetch"]
 
+    # ── Pre-flight LoRA re-validation ─────────────────────────────────────────
+    # Even if the sidebar already validated, we re-check here to guard against
+    # race conditions where the file appears/disappears between sidebar render
+    # and generation trigger.
+    lora_name_for_generation = inputs.get("lora_name")
+    if lora_name_for_generation:
+        _preflight_lora = DEFAULT_LORA_DIR / f"{lora_name_for_generation}.safetensors"
+        if not _preflight_lora.exists():
+            st.warning(
+                f"⚠️ LoRA file `{lora_name_for_generation}.safetensors` was "
+                "removed before generation started. Continuing in pure SDXL mode."
+            )
+            lora_name_for_generation = None
+        else:
+            try:
+                from pokemon_stencil.models.lora_validator import validate_lora_sdxl_compatible
+                _pf_ok, _pf_msg = validate_lora_sdxl_compatible(_preflight_lora)
+            except Exception as _pf_exc:
+                _pf_ok, _pf_msg = False, str(_pf_exc)
+
+            if not _pf_ok:
+                # Sidebar should have caught this; belt-and-braces check.
+                st.warning(
+                    f"⚠️ LoRA `{lora_name_for_generation}` failed pre-flight "
+                    f"validation ({_pf_msg}). Continuing in pure SDXL mode."
+                )
+                lora_name_for_generation = None
+            else:
+                st.info(
+                    f"ℹ️ LoRA `{lora_name_for_generation}` pre-flight OK. "
+                    f"Note: LoRA loading failures during pipeline init still fall back "
+                    f"to pure SDXL mode automatically."
+                )
+
     progress_area = _render_progress_area()
     stage_bar = progress_area["stage_bar"]
     stage_label = progress_area["stage_label"]
@@ -713,22 +832,6 @@ def main() -> None:
         frac = done / max(total, 1)
         candidate_bar.progress(frac)
         candidate_label.markdown(f"Stencil pack **{done}** / {total} exported")
-
-    # ── Pre-flight LoRA validation ────────────────────────────────────────────
-    if inputs.get("lora_name"):
-        _preflight_lora = DEFAULT_LORA_DIR / f"{inputs['lora_name']}.safetensors"
-        try:
-            from pokemon_stencil.models.lora_validator import validate_lora_sdxl_compatible
-            _pf_ok, _pf_msg = validate_lora_sdxl_compatible(_preflight_lora)
-        except Exception as _pf_exc:
-            _pf_ok, _pf_msg = False, str(_pf_exc)
-        if not _pf_ok:
-            st.error(f"🚫 **LoRA validation failed — generation blocked.**  {_pf_msg}")
-            st.info(
-                "Remove the incompatible LoRA file or replace it with an "
-                "SDXL-compatible `.safetensors` LoRA in `models/lora/`."
-            )
-            return
 
     try:
         _set_stage(1, _STAGE_LABELS[0])
@@ -756,12 +859,25 @@ def main() -> None:
             optimise_prompt=inputs["optimise_prompt"],
             use_controlnet=inputs["use_controlnet"],
             use_ip_adapter=inputs["use_ip_adapter"],
-            lora_name=inputs["lora_name"],
+            lora_name=lora_name_for_generation,  # already validated above
         )
         config.generation.auto_fetch_references = auto_fetch
         config.generation.max_reference_images = 25
         if pose_ref_path:
             config.generation.pose_reference_path = pose_ref_path
+
+        # Log the effective generation configuration
+        effective_lora = config.generation.lora_path
+        if effective_lora:
+            log_placeholder.info(
+                f"Starting generation | model=SDXL | LoRA={effective_lora.name} | "
+                f"candidates={count} | seed={config.generation.seed or 'random'}"
+            )
+        else:
+            log_placeholder.info(
+                f"Starting generation | model=SDXL | LoRA=None (pure SDXL) | "
+                f"candidates={count} | seed={config.generation.seed or 'random'}"
+            )
 
         # Pre-warm the SDXL pipeline so heavy model loading happens before
         # FactoryRunner starts (and is served from @st.cache_resource on
@@ -812,6 +928,12 @@ def main() -> None:
     except Exception as exc:  # noqa: BLE001
         stage_bar.progress(0, text="Failed")
         st.error(f"Generation failed: {exc}")
+        st.info(
+            "**Recovery options:**\n"
+            "1. Click **Clear Pipeline Cache** in the sidebar to force a fresh model load.\n"
+            "2. Ensure no incompatible LoRA file is in `models/lora/`.\n"
+            "3. If the error persists, check the traceback below for details."
+        )
         with st.expander("Traceback"):
             st.code(traceback.format_exc(), language="text")
 

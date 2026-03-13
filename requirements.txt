@@ -1,5 +1,8 @@
 # ── Core image processing ────────────────────────────────────────────────────
-opencv-python>=4.8.0,<5.0.0
+# opencv-python 4.8–4.9: stable on Windows Python 3.11; 4.10+ not yet tested.
+# numpy <2.0: binary compatibility with all packages in this stack.
+# Pillow 10.x: stable with scikit-image 0.21+.
+opencv-python>=4.8.0,<4.10.0
 numpy>=1.24.0,<2.0.0
 Pillow>=10.0.0,<11.0.0
 scikit-image>=0.21.0
@@ -17,17 +20,19 @@ streamlit>=1.28.0
 # Verified-compatible stack for Python 3.11, SDXL + ControlNet + IP-Adapter.
 #
 # torch 2.1.x: stable SDXL support; 2.0.x had SDXL decode issues.
-# diffusers 0.27.x: load_ip_adapter() stable, ControlNetModel.from_pretrained OK.
-# transformers 4.37.x: compatible with diffusers 0.27 tokenizer/encoder path.
-# accelerate 0.27.x: model.to(device) helpers tested with above.
+# diffusers 0.27.x–0.28.x: load_ip_adapter() stable, ControlNetModel OK.
+# transformers 4.37–4.39: compatible with diffusers 0.27–0.28 tokenizer/encoder.
+# accelerate 0.27–0.28: model.to(device) helpers tested with above.
 #
 # DO NOT DOWNGRADE diffusers below 0.24.0 — load_ip_adapter was added in 0.24.
 # DO NOT UPGRADE diffusers above 0.28.x without testing — scheduler defaults changed.
+# DO NOT install xformers unless on GPU — it forces torch 2.x+ and breaks CPU setup.
 torch>=2.1.0,<2.3.0
 diffusers>=0.27.0,<0.29.0
 transformers>=4.37.0,<4.40.0
 accelerate>=0.27.0,<0.29.0
 safetensors>=0.4.2,<0.5.0
+
 # peft: required by diffusers>=0.27 for LoRA loading via load_lora_weights().
 # peft 0.8.x requires accelerate>=0.26 (satisfied by accelerate>=0.27 above).
 # Without peft, load_lora_weights() raises ImportError at runtime.
@@ -39,13 +44,17 @@ peft>=0.7.0,<0.9.0
 controlnet-aux>=0.0.7,<0.1.0
 
 # ── Model management ─────────────────────────────────────────────────────────
-# huggingface_hub 0.21–0.22: snapshot_download stable; cached_download removed.
-# 0.23+ dropped local_dir_use_symlinks param; model_manager handles both.
+# huggingface_hub 0.21–0.24: snapshot_download stable; cached_download removed.
+# 0.21+: local_dir_use_symlinks param present (ModelManager handles both).
+# 0.23+: local_dir_use_symlinks param removed (ModelManager handles both).
 #
 # IMPORTANT: do NOT install the ip-adapter PyPI package.
 # It imports huggingface_hub.cached_download which was removed in hub>=0.15.
 # IP-Adapter support is built into diffusers>=0.24 via pipeline.load_ip_adapter().
-huggingface_hub>=0.21.0,<0.23.0
+huggingface_hub>=0.21.0,<0.25.0
 
 # ── Reference image fetching ──────────────────────────────────────────────────
 requests>=2.31.0
+
+# ── Version compatibility checking (verify_env.py) ───────────────────────────
+packaging>=23.0

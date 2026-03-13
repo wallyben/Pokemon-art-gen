@@ -22,8 +22,11 @@ Detection heuristics (applied in order)
    text-conditioning dimension:
    * SDXL → 2048 (CLIP-L 768 + OpenCLIP-bigG 1280)
    * SD1.5 → 768 (CLIP-L only)
-3. **Max-dimension heuristic** — if no cross-attention keys are found, the
-   maximum tensor dimension is used as a fallback signal.
+3. **Max-dimension heuristic (strict)** — if no cross-attention keys are found,
+   the maximum tensor dimension is used as a strict fallback signal:
+   * dim >= 2048 → accepted as SDXL-compatible
+   * dim <= 1280 → rejected (SD1.5 UNet max channel is 1280)
+   * 1280 < dim < 2048 → rejected conservatively (ambiguous range)
 
 Usage::
 
@@ -49,6 +52,10 @@ _SDXL_TEXT_DIM: int = 2048
 #: Text-conditioning dimension for SD 1.5 (CLIP-L only).
 _SD15_TEXT_DIM: int = 768
 
+#: Maximum UNet channel dimension for SD 1.5 (mid-block).
+#: SD1.5 LoRAs that don't hit the cross-attn path will still have max_dim ≤ 1280.
+_SD15_MAX_UNET_DIM: int = 1280
+
 #: Substrings that appear in metadata when the base model is SDXL.
 _SDXL_METADATA_KEYWORDS = ("sd_xl", "sdxl", "xl_base", "stable_diffusion_xl", "xl-base")
 
@@ -56,6 +63,17 @@ _SDXL_METADATA_KEYWORDS = ("sd_xl", "sdxl", "xl_base", "stable_diffusion_xl", "x
 _SD15_METADATA_KEYWORDS = (
     "sd-1", "sd1", "v1-5", "v1.5", "stable_diffusion_v1", "stable-diffusion-v1",
     "sd_1", "sd15",
+)
+
+#: Cross-attention key patterns for auto-detection (multiple naming conventions).
+#: These cover kohya_ss, diffusers, and CompVis naming formats.
+_CROSS_ATTN_PATTERNS = (
+    # kohya_ss format
+    ("attn2", "to_k", "lora_down"),
+    ("attn2", "to_v", "lora_down"),
+    # transformer_blocks format
+    ("transformer_blocks", "attn2", "to_k"),
+    ("transformer_blocks", "attn2", "to_v"),
 )
 
 
@@ -146,8 +164,25 @@ def validate_lora_sdxl_compatible(lora_path: Path) -> Tuple[bool, str]:
                     f"(Cross-attention input dim={cross_attn_dim} matches SD1.5, "
                     "not SDXL which requires dim=2048.)",
                 )
+            # Cross-attn dim found but neither 768 nor 2048 — reject conservatively
+            return (
+                False,
+                "Loaded LoRA is not SDXL-compatible. Please provide an SDXL LoRA. "
+                f"(Unexpected cross-attention input dim={cross_attn_dim}; "
+                f"SDXL requires 2048, SD1.5 uses 768.)",
+            )
 
-        # ── 2c. Max-dimension heuristic (fallback) ────────────────────────
+        # ── 2c. Max-dimension heuristic — STRICT fallback ─────────────────
+        #
+        # SDXL cross-attention requires 2048-dim text embeddings. Any genuine
+        # SDXL LoRA that touches text cross-attention will have a 2048-dim
+        # tensor. SD1.5's largest UNet channel is 1280.
+        #
+        # Decision boundaries:
+        #   max_dim >= 2048  → SDXL-compatible (required cross-attn dim present)
+        #   max_dim <= 1280  → SD1.5 (max SD1.5 UNet channel is 1280)
+        #   1280 < max_dim < 2048 → ambiguous; reject conservatively to prevent
+        #                            matmul errors at inference time
         max_dim = _max_tensor_dim(keys, lora_path)
         if max_dim == 0:
             return False, f"LoRA file '{lora_path.name}' contains no readable tensors."
@@ -158,25 +193,33 @@ def validate_lora_sdxl_compatible(lora_path: Path) -> Tuple[bool, str]:
                 f"LoRA '{lora_path.name}' likely SDXL-compatible "
                 f"(max tensor dim={max_dim} ≥ {_SDXL_TEXT_DIM}).",
             )
-        if max_dim <= _SD15_TEXT_DIM:
+
+        if max_dim <= _SD15_MAX_UNET_DIM:
+            # max_dim ≤ 1280 is consistent with SD1.5 architecture only.
             return (
                 False,
                 "Loaded LoRA is not SDXL-compatible. Please provide an SDXL LoRA. "
-                f"(Max tensor dimension {max_dim} is consistent with SD1.5 "
-                f"architecture, not SDXL which uses dims up to {_SDXL_TEXT_DIM}.)",
+                f"(Max tensor dimension {max_dim} ≤ {_SD15_MAX_UNET_DIM}, "
+                f"consistent with SD1.5 architecture. "
+                f"SDXL LoRAs have cross-attention tensors with dim={_SDXL_TEXT_DIM}.)",
             )
 
-        # Cannot determine — accept with a warning
+        # 1280 < max_dim < 2048: ambiguous range — reject conservatively.
+        # This prevents false positives from LoRAs with unusual tensor shapes
+        # that could cause matmul errors at inference time.
         logger.warning(
-            "LoRA '%s': architecture could not be determined (max_dim=%d). "
-            "Proceeding cautiously — dimension mismatch errors may occur at runtime.",
+            "LoRA '%s': architecture undetermined (max_dim=%d, range 1280–2048). "
+            "Rejecting conservatively to prevent inference-time matmul errors. "
+            "Provide an SDXL LoRA with metadata or 2048-dim cross-attention tensors.",
             lora_path.name,
             max_dim,
         )
         return (
-            True,
-            f"LoRA '{lora_path.name}' architecture undetermined "
-            f"(max_dim={max_dim}); proceeding with caution.",
+            False,
+            "Loaded LoRA is not SDXL-compatible. Please provide an SDXL LoRA. "
+            f"(Architecture undetermined: max tensor dim={max_dim} is in the "
+            f"ambiguous range 1280–2048. Rejecting conservatively to prevent "
+            f"inference-time matmul errors.)",
         )
 
     except Exception as exc:  # noqa: BLE001
@@ -192,24 +235,49 @@ def _detect_cross_attn_dim(keys: list, lora_path: Path) -> int | None:
     """
     Scan LoRA keys for cross-attention projection tensors and return the
     input dimension, or ``None`` if no such keys are found.
+
+    Handles multiple naming conventions:
+    - kohya_ss:  ``...attn2.to_k.lora_down.weight``
+    - diffusers: ``...attn2_to_k.lora_down.weight``
+    - flat:      ``lora_unet_..._attn2_to_k.lora_down.weight``
     """
     try:
         from safetensors import safe_open
 
         with safe_open(str(lora_path), framework="pt", device="cpu") as f:
             for key in keys:
-                # Target: cross-attention key or value projections, lora_down side
-                if "attn2" in key and ("to_k" in key or "to_v" in key) and "lora_down" in key:
-                    tensor = f.get_tensor(key)
-                    if len(tensor.shape) >= 2:
-                        in_dim = int(tensor.shape[-1])
-                        logger.debug(
-                            "LoRA cross-attn key '%s' → in_dim=%d", key, in_dim
-                        )
-                        return in_dim
+                if not _is_cross_attn_lora_down_key(key):
+                    continue
+                tensor = f.get_tensor(key)
+                if len(tensor.shape) >= 2:
+                    in_dim = int(tensor.shape[-1])
+                    logger.debug(
+                        "LoRA cross-attn key '%s' → in_dim=%d", key, in_dim
+                    )
+                    return in_dim
     except Exception as exc:  # noqa: BLE001
         logger.debug("Cross-attn dimension probe failed: %s", exc)
     return None
+
+
+def _is_cross_attn_lora_down_key(key: str) -> bool:
+    """
+    Return True if *key* corresponds to a cross-attention lora_down weight.
+
+    Matches keys from multiple training frameworks (kohya_ss, diffusers,
+    CompVis) that encode the text→UNet cross-attention projection weights.
+    """
+    key_lower = key.lower()
+    # Must be a lora_down weight
+    if "lora_down" not in key_lower:
+        return False
+    # Must be a cross-attention (attn2) key/value projection
+    if "attn2" not in key_lower:
+        return False
+    # Must target a projection layer
+    if "to_k" not in key_lower and "to_v" not in key_lower:
+        return False
+    return True
 
 
 def _max_tensor_dim(keys: list, lora_path: Path) -> int:
