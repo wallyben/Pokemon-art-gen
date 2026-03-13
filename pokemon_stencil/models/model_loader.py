@@ -46,6 +46,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 from pokemon_stencil.config import GenerationConfig
+from pokemon_stencil.models.lora_validator import validate_lora_sdxl_compatible
 
 if TYPE_CHECKING:
     from diffusers import (
@@ -354,7 +355,7 @@ def _load_sdxl_from_sources(
         _load_ip_adapter(pipe, config)
 
     # ── Optional LoRA ──────────────────────────────────────────────────────────
-    if config.lora_path and Path(config.lora_path).is_file():
+    if config.lora_path:
         _apply_lora(pipe, config)
 
     logger.info("StableDiffusionXLControlNetPipeline loaded and optimised.")
@@ -403,23 +404,40 @@ def _load_ip_adapter(pipe, config: GenerationConfig) -> None:
 
 def _apply_lora(pipe, config: GenerationConfig) -> None:
     """
-    Apply LoRA weights onto *pipe* and fuse them into the base weights.
+    Validate and apply LoRA weights onto *pipe*, then fuse them.
 
-    Handles the diffusers API break between <=0.26 and >=0.27:
+    Validation
+    ----------
+    Before loading, the LoRA file is inspected via :mod:`lora_validator` to
+    confirm it was trained for SDXL architecture.  Loading an SD1.5 LoRA onto
+    an SDXL pipeline causes cross-attention dimension mismatches (768 vs 2048)
+    that manifest as ``RuntimeError`` during generation.  This function raises
+    a clear ``ValueError`` instead, preventing silent or cryptic failures.
 
-    * diffusers <=0.26: ``pipe.fuse_lora(lora_scale=scale)``
+    diffusers API compatibility
+    ---------------------------
     * diffusers >=0.27: ``pipe.set_adapters([name], [scale])`` then
       ``pipe.fuse_lora()`` (``lora_scale`` kwarg was removed from fuse_lora).
+    * diffusers <=0.26: ``pipe.fuse_lora(lora_scale=scale)``.
+    * Last resort: ``pipe.fuse_lora()`` without scale.
 
-    Resolution order:
-    1. Try new API (diffusers >= 0.27) with ``set_adapters``.
-    2. Fall back to old API (diffusers <= 0.26) with ``fuse_lora(lora_scale=)``.
-    3. Last resort: fuse without scale (logs a warning).
+    Raises:
+        ValueError: LoRA fails SDXL compatibility validation.
+        RuntimeError: Unexpected loading or fusion failure.
     """
     lora_path = Path(config.lora_path)
     scale = config.lora_scale
-    logger.info("Applying LoRA weights from '%s' (scale=%.2f).", lora_path, scale)
 
+    # ── SDXL compatibility check — must pass before any load attempt ──────────
+    ok, validation_msg = validate_lora_sdxl_compatible(lora_path)
+    if not ok:
+        raise ValueError(validation_msg)
+
+    logger.info(
+        "LoRA validated: %s — applying (scale=%.2f).", validation_msg, scale
+    )
+
+    # ── Load and fuse ─────────────────────────────────────────────────────────
     try:
         pipe.load_lora_weights(str(lora_path))
 
@@ -447,8 +465,14 @@ def _apply_lora(pipe, config: GenerationConfig) -> None:
             scale,
         )
 
+    except ValueError:
+        raise  # Re-raise validation errors unchanged.
     except Exception as exc:
-        logger.warning("LoRA loading failed (%s); continuing without LoRA.", exc)
+        raise RuntimeError(
+            f"LoRA loading failed for '{lora_path.name}'. "
+            "Ensure the LoRA is a valid SDXL-compatible .safetensors file. "
+            f"Error: {exc}"
+        ) from exc
 
 
 def _load_sd_from_source(
@@ -534,7 +558,7 @@ def _load_controlnet_from_sources(
     pipe = pipe.to(config.device)
     _apply_memory_optimizations(pipe, config.device)
 
-    if config.lora_path and Path(config.lora_path).is_file():
+    if config.lora_path:
         _apply_lora(pipe, config)
 
     logger.info("StableDiffusionControlNetPipeline (SD15) loaded.")

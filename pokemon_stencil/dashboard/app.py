@@ -412,9 +412,27 @@ def _render_sidebar() -> dict:
         None if lora_label == _LORA_NONE_LABEL else lora_label
     )
 
+    # ── LoRA validation feedback ───────────────────────────────────────────────
     if lora_name:
-        st.sidebar.success(f"LoRA: `{lora_name}.safetensors`")
-    elif len(available_loras) == 1:
+        _lora_file = DEFAULT_LORA_DIR / f"{lora_name}.safetensors"
+        try:
+            from pokemon_stencil.models.lora_validator import validate_lora_sdxl_compatible
+            _lora_ok, _lora_msg = validate_lora_sdxl_compatible(_lora_file)
+        except Exception:
+            _lora_ok, _lora_msg = False, "LoRA validator unavailable."
+        if _lora_ok:
+            st.sidebar.success(f"✅ LoRA: `{lora_name}.safetensors` (SDXL-compatible)")
+        else:
+            st.sidebar.error(f"❌ LoRA invalid: {_lora_msg}")
+            lora_name = None  # Block invalid LoRA from reaching the pipeline
+    elif is_sdxl and len(available_loras) == 1:
+        # No LoRA files at all — warn explicitly for SDXL accuracy path
+        st.sidebar.warning(
+            "⚠️ No SDXL LoRA found in `models/lora/`. "
+            "Generation quality will not meet expected Pokémon accuracy. "
+            "Place an SDXL-compatible `.safetensors` LoRA in that directory."
+        )
+    elif not is_sdxl and len(available_loras) == 1:
         st.sidebar.caption(
             "No LoRA files found. Place `.safetensors` files in `models/lora/` "
             "to enable character-specific refinement."
@@ -615,16 +633,29 @@ def main() -> None:
         st.warning("Enter a Pokémon name in the sidebar to get started.")
         return
 
-    # ── Model info banner ─────────────────────────────────────────────────────
+    # ── Model status banner ───────────────────────────────────────────────────
     controlnet_status = "✅ ControlNet on" if inputs["use_controlnet"] else "⚠️ ControlNet off"
     ipa_status = "✅ IP-Adapter on" if inputs["use_ip_adapter"] else "⚠️ IP-Adapter off"
-    lora_status = f"LoRA: `{inputs['lora_name']}`" if inputs["lora_name"] else "No LoRA"
+    _sdxl_loaded = "✅ SDXL loaded" if inputs["is_sdxl"] else f"⚠️ Legacy: {inputs['model_label']}"
+    if inputs["lora_name"]:
+        lora_status = f"✅ LoRA: `{inputs['lora_name']}`"
+    else:
+        lora_status = "❌ No SDXL LoRA" if inputs["is_sdxl"] else "No LoRA"
     st.info(
-        f"**Model:** {inputs['model_label']}  |  {controlnet_status}  |  "
-        f"{ipa_status}  |  **Prompt opt:** {'✅' if inputs['optimise_prompt'] else '⚠️'}  |  "
-        f"**Seed:** {inputs['seed'] if inputs['seed'] is not None else 'random'}  |  "
-        f"{lora_status}"
+        f"**{_sdxl_loaded}**  |  {controlnet_status}  |  "
+        f"{ipa_status}  |  **{lora_status}**  |  "
+        f"**Prompt opt:** {'✅' if inputs['optimise_prompt'] else '⚠️'}  |  "
+        f"**Seed:** {inputs['seed'] if inputs['seed'] is not None else 'random'}"
     )
+
+    # ── LoRA accuracy warning (non-blocking) ──────────────────────────────────
+    if inputs["is_sdxl"] and not inputs["lora_name"]:
+        st.warning(
+            "⚠️ **No valid SDXL LoRA found.** Generation quality will not meet "
+            "expected Pokémon accuracy.  "
+            "Place an SDXL-compatible `.safetensors` LoRA in `models/lora/` "
+            "before generating for best results."
+        )
 
     _render_reference_preview(inputs["pokemon_name"])
 
@@ -682,6 +713,22 @@ def main() -> None:
         frac = done / max(total, 1)
         candidate_bar.progress(frac)
         candidate_label.markdown(f"Stencil pack **{done}** / {total} exported")
+
+    # ── Pre-flight LoRA validation ────────────────────────────────────────────
+    if inputs.get("lora_name"):
+        _preflight_lora = DEFAULT_LORA_DIR / f"{inputs['lora_name']}.safetensors"
+        try:
+            from pokemon_stencil.models.lora_validator import validate_lora_sdxl_compatible
+            _pf_ok, _pf_msg = validate_lora_sdxl_compatible(_preflight_lora)
+        except Exception as _pf_exc:
+            _pf_ok, _pf_msg = False, str(_pf_exc)
+        if not _pf_ok:
+            st.error(f"🚫 **LoRA validation failed — generation blocked.**  {_pf_msg}")
+            st.info(
+                "Remove the incompatible LoRA file or replace it with an "
+                "SDXL-compatible `.safetensors` LoRA in `models/lora/`."
+            )
+            return
 
     try:
         _set_stage(1, _STAGE_LABELS[0])
