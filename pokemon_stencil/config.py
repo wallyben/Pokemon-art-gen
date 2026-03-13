@@ -6,18 +6,24 @@ Python dataclasses.  Modules accept config objects rather than raw
 literals, making the system easy to reconfigure from the CLI or tests
 without touching internal logic.
 
-Directory conventions (applied corrections)
--------------------------------------------
-- All runtime outputs live under ``outputs/`` (not ``output/``).
+Directory conventions
+---------------------
+- All runtime outputs live under ``outputs/``.
 - Pre-downloaded model weights are expected under ``models/`` so the
   pipeline can run fully offline.
 
-Model stack (v2)
------------------
-- Base model:          Lykon/DreamShaper (SD 1.5 fine-tune)
-- ControlNet OpenPose: lllyasviel/control_v11p_sd15_openpose
-- ControlNet Canny:    lllyasviel/control_v11p_sd15_canny
-- LoRA:                optional character-enhancement LoRA
+Model stack (v3 – SDXL upgrade)
+---------------------------------
+- Base model:              stabilityai/stable-diffusion-xl-base-1.0
+- Pipeline:                StableDiffusionXLControlNetPipeline
+- ControlNet OpenPose:     thibaud/controlnet-openpose-sdxl-1.0
+- ControlNet Canny:        diffusers/controlnet-canny-sdxl-1.0
+- IP-Adapter:              h94/IP-Adapter (SDXL variant)
+- LoRA:                    optional character-enhancement LoRA (models/lora/)
+
+Legacy SD 1.5 ControlNet IDs kept as constants for reference:
+- lllyasviel/control_v11p_sd15_openpose
+- lllyasviel/control_v11p_sd15_canny
 """
 
 from __future__ import annotations
@@ -27,22 +33,38 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 
-# ── Model paths ───────────────────────────────────────────────────────────────
+# ── SDXL model paths ──────────────────────────────────────────────────────────
 
-#: Default local path for the SD 1.5 model weights (legacy fallback).
+#: SDXL base model – primary generation backbone.
+DEFAULT_SDXL_LOCAL_PATH: Path = Path("models/sdxl")
+DEFAULT_SDXL_HUB_ID: str = "stabilityai/stable-diffusion-xl-base-1.0"
+
+#: ControlNet OpenPose – SDXL-compatible pose guidance.
+DEFAULT_CONTROLNET_OPENPOSE_LOCAL_PATH: Path = Path("models/controlnet_pose")
+DEFAULT_CONTROLNET_OPENPOSE_HUB_ID: str = "thibaud/controlnet-openpose-sdxl-1.0"
+
+#: ControlNet Canny – SDXL-compatible edge/structure guidance.
+DEFAULT_CONTROLNET_CANNY_LOCAL_PATH: Path = Path("models/controlnet_canny")
+DEFAULT_CONTROLNET_CANNY_HUB_ID: str = "diffusers/controlnet-canny-sdxl-1.0"
+
+#: IP-Adapter – reference image conditioning for character preservation.
+DEFAULT_IP_ADAPTER_LOCAL_PATH: Path = Path("models/ip_adapter")
+DEFAULT_IP_ADAPTER_HUB_ID: str = "h94/IP-Adapter"
+
+#: LoRA directory – character-specific fine-tuning weights.
+DEFAULT_LORA_DIR: Path = Path("models/lora")
+
+# ── Legacy SD 1.5 constants (kept for backward compatibility) ─────────────────
 DEFAULT_MODEL_LOCAL_PATH: Path = Path("models/sd15")
 DEFAULT_MODEL_HUB_ID: str = "runwayml/stable-diffusion-v1-5"
 
-#: DreamShaper base model – better Pokémon character quality.
+#: Legacy DreamShaper model (SD 1.5 fine-tune).
 DEFAULT_DREAMSHAPER_LOCAL_PATH: Path = Path("models/dreamshaper")
 DEFAULT_DREAMSHAPER_HUB_ID: str = "Lykon/DreamShaper"
 
-#: ControlNet model paths.
-DEFAULT_CONTROLNET_OPENPOSE_LOCAL_PATH: Path = Path("models/controlnet_openpose")
-DEFAULT_CONTROLNET_OPENPOSE_HUB_ID: str = "lllyasviel/control_v11p_sd15_openpose"
-
-DEFAULT_CONTROLNET_CANNY_LOCAL_PATH: Path = Path("models/controlnet_canny")
-DEFAULT_CONTROLNET_CANNY_HUB_ID: str = "lllyasviel/control_v11p_sd15_canny"
+#: SD 1.5 ControlNet IDs (kept for reference; use SDXL variants above).
+SD15_CONTROLNET_OPENPOSE_HUB_ID: str = "lllyasviel/control_v11p_sd15_openpose"
+SD15_CONTROLNET_CANNY_HUB_ID: str = "lllyasviel/control_v11p_sd15_canny"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -51,33 +73,37 @@ DEFAULT_CONTROLNET_CANNY_HUB_ID: str = "lllyasviel/control_v11p_sd15_canny"
 
 @dataclass
 class GenerationConfig:
-    """Parameters for image generation using the upgraded DreamShaper + ControlNet stack.
+    """Parameters for image generation using the SDXL + ControlNet + IP-Adapter stack.
 
     Model resolution order:
     1. Local path (``model_local_path``) if directory is non-empty.
     2. HuggingFace Hub ID (``model_hub_id``).
 
-    When ``use_controlnet=True`` the pipeline uses
-    ``StableDiffusionControlNetPipeline`` with both OpenPose and Canny
-    ControlNets for superior structure guidance.
+    Pipeline:
+    - ``StableDiffusionXLControlNetPipeline`` with OpenPose + Canny ControlNets
+    - IP-Adapter conditioning from reference images in ``refs/<pokemon_name>/``
+    - Optional LoRA weights merged from ``models/lora/``
 
-    When ``use_reference_encoding=True`` the pipeline uses img2img with the
-    ``CharacterReferenceEncoder`` latent at ``reference_strength`` to preserve
-    character appearance across scene variations.
+    Generation settings per spec:
+    - steps = 28
+    - guidance_scale = 7.5
+    - width = height = 1024
+    - reference_strength (IP-Adapter scale) = 0.45
     """
 
-    # ── Base model ────────────────────────────────────────────────────────────
-    #: Local path for DreamShaper weights (falls back to Hub when absent).
+    # ── SDXL base model ───────────────────────────────────────────────────────
     model_local_path: Path = field(
+        default_factory=lambda: DEFAULT_SDXL_LOCAL_PATH
+    )
+    model_hub_id: str = DEFAULT_SDXL_HUB_ID
+
+    # ── Legacy SD 1.5 / DreamShaper fallback ─────────────────────────────────
+    legacy_model_hub_id: str = DEFAULT_MODEL_HUB_ID
+    legacy_model_local_path: Path = field(
         default_factory=lambda: DEFAULT_DREAMSHAPER_LOCAL_PATH
     )
-    model_hub_id: str = DEFAULT_DREAMSHAPER_HUB_ID
 
-    # ── Legacy SD 1.5 fallback ────────────────────────────────────────────────
-    #: Set to the SD 1.5 Hub ID to revert to the old model stack.
-    legacy_model_hub_id: str = DEFAULT_MODEL_HUB_ID
-
-    # ── ControlNet models ─────────────────────────────────────────────────────
+    # ── ControlNet models (SDXL-compatible) ───────────────────────────────────
     controlnet_openpose_local_path: Path = field(
         default_factory=lambda: DEFAULT_CONTROLNET_OPENPOSE_LOCAL_PATH
     )
@@ -97,38 +123,60 @@ class GenerationConfig:
     #: Conditioning scale for the ControlNet Canny branch [0..2].
     controlnet_canny_scale: float = 0.6
 
+    # ── IP-Adapter (reference image conditioning) ─────────────────────────────
+    ip_adapter_local_path: Path = field(
+        default_factory=lambda: DEFAULT_IP_ADAPTER_LOCAL_PATH
+    )
+    ip_adapter_hub_id: str = DEFAULT_IP_ADAPTER_HUB_ID
+
+    #: When True, encode reference images via IP-Adapter CLIP encoder.
+    use_ip_adapter: bool = True
+
+    #: IP-Adapter conditioning strength; 0.45 per spec.
+    ip_adapter_scale: float = 0.45
+
+    #: Minimum reference images to load for IP-Adapter conditioning.
+    ip_adapter_min_images: int = 10
+
+    #: Maximum reference images to load for IP-Adapter conditioning.
+    ip_adapter_max_images: int = 30
+
     # ── LoRA ──────────────────────────────────────────────────────────────────
-    #: Path to an optional LoRA `.safetensors` file for character enhancement.
+    #: Path to an optional LoRA ``.safetensors`` file for character enhancement.
     lora_path: Optional[Path] = None
+
+    #: Directory containing available LoRA weight files.
+    lora_dir: Path = field(default_factory=lambda: DEFAULT_LORA_DIR)
 
     #: LoRA blending scale applied via ``load_lora_weights``.
     lora_scale: float = 0.8
 
-    # ── Reference encoding ────────────────────────────────────────────────────
-    #: When True, encode reference images with VAE and use img2img conditioning.
+    # ── Reference encoding (legacy img2img path) ───────────────────────────────
+    #: When True and IP-Adapter is disabled, use img2img reference encoding.
     use_reference_encoding: bool = True
 
     #: img2img denoising strength; lower = more faithful to reference.
-    reference_strength: float = 0.35
+    reference_strength: float = 0.45
 
-    # ── Generation parameters ─────────────────────────────────────────────────
-    num_inference_steps: int = 25
+    # ── Generation parameters (per spec) ─────────────────────────────────────
+    num_inference_steps: int = 28
     guidance_scale: float = 7.5
-    width: int = 768
-    height: int = 768
+    width: int = 1024
+    height: int = 1024
 
     #: Optional fixed seed for reproducible outputs.
     seed: Optional[int] = None
 
-    #: CPU-safe dtype.  float16 is not reliable on most CPU torch builds.
+    #: dtype – use float16 for GPU, float32 for CPU.
     torch_dtype: str = "float32"
     device: str = "cpu"
 
     # ── Prompt ────────────────────────────────────────────────────────────────
     #: Prompt suffix appended to every generation.
     style_suffix: str = (
-        "clean cartoon illustration, bold outlines, vector style, "
-        "high contrast lighting, stencil art style, white background"
+        "clean cartoon illustration, bold black outlines, vector illustration style, "
+        "high contrast lighting, flat colour shapes, poster illustration style, "
+        "stencil-friendly composition"
     )
 
     negative_prompt: str = (
@@ -140,25 +188,16 @@ class GenerationConfig:
     #: When True, pass the prompt through PromptEngine to enforce 77-token limit.
     optimise_prompt: bool = True
 
-    # ── Composition guidance (legacy) ─────────────────────────────────────────
-    #: When True, a composition guidance map is generated from a reference
-    #: image and fed to the generator as structural conditioning.
+    # ── Composition guidance ──────────────────────────────────────────────────
     use_composition_guidance: bool = True
-
-    #: Blending strength for composition map conditioning in [0.0, 1.0].
     composition_strength: float = 0.6
 
     # ── Pose reference ────────────────────────────────────────────────────────
-    #: Optional path to a pose reference image.  When set and ControlNet is
-    #: enabled, OpenPose is detected from this image instead of the Canny map.
+    #: Optional path to a pose reference image for OpenPose conditioning.
     pose_reference_path: Optional[Path] = None
 
     # ── Reference fetching ────────────────────────────────────────────────────
-    #: When True and the refs directory for the requested Pokémon is empty,
-    #: the factory automatically fetches reference images before generation.
     auto_fetch_references: bool = False
-
-    #: Maximum number of reference images to fetch per Pokémon.
     max_reference_images: int = 25
 
     @property
@@ -168,21 +207,26 @@ class GenerationConfig:
             return self.model_local_path
         return self.model_hub_id
 
+    def list_available_loras(self) -> List[Path]:
+        """Return all .safetensors files in ``lora_dir``."""
+        if not self.lora_dir.is_dir():
+            return []
+        return sorted(self.lora_dir.glob("*.safetensors"))
+
 
 @dataclass
 class ProcessingConfig:
     """Parameters for image simplification and colour segmentation."""
 
     # ── Bilateral filter ──────────────────────────────────────────────────────
-    #: Filter diameter.  Larger values = more smoothing, slower.
     bilateral_d: int = 9
     bilateral_sigma_color: float = 75.0
     bilateral_sigma_space: float = 75.0
-    #: Number of sequential bilateral passes.
     bilateral_passes: int = 3
 
     # ── Colour quantisation ───────────────────────────────────────────────────
     #: Number of K-Means clusters == number of stencil colour layers.
+    #: Range 4–8 per spec.
     n_colors: int = 6
 
     #: Layers with fewer pixels than this are discarded as noise.
@@ -191,47 +235,40 @@ class ProcessingConfig:
     # ── Morphological cleanup ─────────────────────────────────────────────────
     morph_kernel_size: int = 5
 
-    # ── Edge detection (informational; not used in stencil paths) ─────────────
+    # ── Edge detection ────────────────────────────────────────────────────────
     canny_low: int = 50
     canny_high: int = 150
 
     # ── Image dimensions ──────────────────────────────────────────────────────
-    #: All images are resized to this before processing.
-    output_size: Tuple[int, int] = (512, 512)
+    #: Processing resolution.  1024 for SDXL generation.
+    output_size: Tuple[int, int] = (1024, 1024)
 
     # ── Stencil safety improvements ───────────────────────────────────────────
-    #: When True, apply adaptive edge thinning after posterisation.
     adaptive_edge_thinning: bool = True
-
-    #: When True, merge small colour components into the nearest large neighbour.
     merge_small_components: bool = True
-
-    #: Minimum island area (pixels) below which a component is merged/removed.
     min_island_area: int = 200
+
+    # ── Region merging (post k-means) ─────────────────────────────────────────
+    #: When True, merge adjacent colour regions with low colour distance.
+    merge_adjacent_regions: bool = True
+
+    #: Maximum LAB ΔE between regions to trigger merging.
+    region_merge_threshold: float = 15.0
 
 
 @dataclass
 class VectorConfig:
     """Parameters for bitmap-to-vector tracing via potrace."""
 
-    #: Ignore speckles smaller than this many pixels (potrace turdsize).
     turdsize: int = 10
-
-    #: Corner rounding threshold: 0 = sharp corners, 1.333 = fully rounded.
     alphamax: float = 0.8
-
-    #: Bezier curve optimisation tolerance.
     opttolerance: float = 0.2
-
-    #: Paths shorter than this (in SVG user-units / pixels) are discarded.
     min_path_length: float = 20.0
 
     # ── SVG canvas ────────────────────────────────────────────────────────────
     #: Cricut standard mat: 12 × 12 inches = 304.8 × 304.8 mm.
     canvas_width_mm: float = 304.8
     canvas_height_mm: float = 304.8
-
-    #: DPI used when converting pixel coordinates to millimetres.
     dpi: float = 96.0
 
 
@@ -239,34 +276,18 @@ class VectorConfig:
 class StencilConfig:
     """Parameters for stencil-safety processing and layer construction."""
 
-    #: Minimum bridge width (px) connecting floating islands to the frame.
     bridge_width: int = 8
-
-    #: Stroke width for the outline layer in pixels at output resolution.
     outline_stroke_width: float = 2.0
-
-    #: Minimum cuttable feature width in mm (Cricut can cut ~0.5 mm).
     min_cut_width_mm: float = 0.8
-
-    #: Stamp registration circles onto each layer for multi-layer alignment.
     add_registration_marks: bool = True
-
-    #: Radius of registration mark circles in mm.
     reg_mark_radius_mm: float = 3.0
-
-    #: Clear margin around the design in mm.
     padding_mm: float = 10.0
 
 
 @dataclass
 class OutputConfig:
-    """Output path configuration.
+    """Output path configuration."""
 
-    All runtime artefacts (images, masks, SVGs) are written under
-    ``base_dir / run_name / <sub-dir>``.
-    """
-
-    #: Root output directory.  Standardised to ``outputs/``.
     base_dir: Path = field(default_factory=lambda: Path("outputs"))
 
     images_dir: str = "images"
@@ -275,27 +296,21 @@ class OutputConfig:
     svg_dir: str = "svg"
 
     def run_root(self, run_name: str) -> Path:
-        """Return the root directory for a named run."""
         return self.base_dir / run_name
 
     def images_path(self, run_name: str) -> Path:
-        """Directory for raw generated / reference images."""
         return self.base_dir / run_name / self.images_dir
 
     def simplified_path(self, run_name: str) -> Path:
-        """Directory for simplified (post-processed) images."""
         return self.base_dir / run_name / self.simplified_dir
 
     def masks_path(self, run_name: str) -> Path:
-        """Directory for per-layer binary mask PNGs."""
         return self.base_dir / run_name / self.masks_dir
 
     def svg_path(self, run_name: str) -> Path:
-        """Directory for exported SVG stencil files."""
         return self.base_dir / run_name / self.svg_dir
 
     def ensure_run_dirs(self, run_name: str) -> None:
-        """Create all output sub-directories for *run_name* if absent."""
         for path in (
             self.images_path(run_name),
             self.simplified_path(run_name),
@@ -309,36 +324,28 @@ class OutputConfig:
 class BatchConfig:
     """Parameters specific to batch-factory generation."""
 
-    #: Number of designs to produce per Pokemon entry.
     count: int = 3
-
-    #: Number of worker processes for parallel generation.
-    #: 1 = sequential (safe on low-RAM machines); >1 uses multiprocessing.
     workers: int = 1
 
 
 @dataclass
 class FactoryConfig:
-    """Parameters for art factory mode (Phase 4).
+    """Parameters for art factory mode.
 
-    The factory generates *count* candidate artworks, scores them for
-    stencil suitability, selects the top *top_k*, and converts only those
-    to full stencil SVG packs.
+    Per spec: generate 20 candidate images using seed/lighting/angle variation,
+    score them, and return the best candidates.
     """
 
-    #: Total number of candidate designs to generate.
-    count: int = 10
+    #: Total candidates to generate per prompt (20 per spec).
+    count: int = 20
 
     #: Number of top-scoring candidates to convert to stencil SVGs.
     top_k: int = 3
 
-    #: Parallel worker processes for candidate generation.
-    #: 1 = sequential (safe on low-RAM machines); >1 uses multiprocessing.
+    #: Parallel worker processes.
     workers: int = 1
 
-    #: Cosine similarity threshold for the design diversity filter.
-    #: Candidates with similarity > threshold to any already-selected design
-    #: are rejected.  Range [0, 1]; higher = stricter diversity enforcement.
+    #: Cosine similarity threshold for diversity filtering.
     diversity_threshold: float = 0.85
 
 
@@ -348,10 +355,7 @@ class FactoryConfig:
 
 @dataclass
 class PipelineConfig:
-    """Top-level configuration aggregating all pipeline sub-configs.
-
-    Pass an instance of this class to ``Pipeline`` or ``BatchRunner``.
-    """
+    """Top-level configuration aggregating all pipeline sub-configs."""
 
     generation: GenerationConfig = field(default_factory=GenerationConfig)
     processing: ProcessingConfig = field(default_factory=ProcessingConfig)
@@ -361,6 +365,5 @@ class PipelineConfig:
     batch: BatchConfig = field(default_factory=BatchConfig)
     factory: FactoryConfig = field(default_factory=FactoryConfig)
 
-    #: When True the SD generation stage is skipped and reference images are
-    #: used directly as the source for simplification and segmentation.
+    #: When True, skip SD generation and use reference images directly.
     skip_generation: bool = False
