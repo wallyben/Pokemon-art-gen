@@ -73,6 +73,55 @@ from pokemon_stencil.models.model_manager import ModelManager
 from pokemon_stencil.pipeline import PipelineResult
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Pipeline caching
+# ─────────────────────────────────────────────────────────────────────────────
+
+@st.cache_resource(
+    show_spinner="Loading AI models — first run only, this may take several minutes…"
+)
+def _get_sdxl_pipeline(
+    model_hub_id: str,
+    device: str,
+    torch_dtype: str,
+    use_ip_adapter: bool,
+    ip_adapter_hub_id: str,
+    lora_path_str: str,
+    lora_scale: float,
+):
+    """
+    Load and cache the SDXL + ControlNet + IP-Adapter pipeline across Streamlit
+    reruns using ``@st.cache_resource``.
+
+    The module-level ``_SDXL_CACHE`` in ``model_loader`` persists within a
+    single Streamlit process, but ``@st.cache_resource`` additionally survives
+    hot-reloads and ensures Streamlit's resource management tracks the object.
+
+    Parameters are intentionally primitive (strings, bools, floats) so that
+    Streamlit can hash them as a stable cache key.
+    """
+    from pokemon_stencil.config import (
+        DEFAULT_CONTROLNET_CANNY_HUB_ID,
+        DEFAULT_CONTROLNET_OPENPOSE_HUB_ID,
+        GenerationConfig,
+    )
+    from pokemon_stencil.models.model_loader import load_sdxl_controlnet_pipeline
+
+    cfg = GenerationConfig(
+        model_hub_id=model_hub_id,
+        device=device,
+        torch_dtype=torch_dtype,
+        use_ip_adapter=use_ip_adapter,
+        ip_adapter_hub_id=ip_adapter_hub_id,
+        lora_path=Path(lora_path_str) if lora_path_str else None,
+        lora_scale=lora_scale,
+        # ControlNets always use Hub IDs when warming up via the dashboard.
+        controlnet_openpose_hub_id=DEFAULT_CONTROLNET_OPENPOSE_HUB_ID,
+        controlnet_canny_hub_id=DEFAULT_CONTROLNET_CANNY_HUB_ID,
+    )
+    return load_sdxl_controlnet_pipeline(cfg)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Constants
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -161,12 +210,12 @@ def _build_config(
     output_dir: Path,
     candidate_count: int,
     top_k: int,
-    model_hub_id: str,
-    seed: Optional[int],
-    optimise_prompt: bool,
-    use_controlnet: bool,
-    use_ip_adapter: bool,
-    lora_name: Optional[str],
+    model_hub_id: str = DEFAULT_SDXL_HUB_ID,
+    seed: Optional[int] = None,
+    optimise_prompt: bool = True,
+    use_controlnet: bool = True,
+    use_ip_adapter: bool = False,
+    lora_name: Optional[str] = None,
 ) -> PipelineConfig:
     """Construct a PipelineConfig for dashboard use."""
     lora_path: Optional[Path] = None
@@ -666,6 +715,22 @@ def main() -> None:
         config.generation.max_reference_images = 25
         if pose_ref_path:
             config.generation.pose_reference_path = pose_ref_path
+
+        # Pre-warm the SDXL pipeline so heavy model loading happens before
+        # FactoryRunner starts (and is served from @st.cache_resource on
+        # subsequent runs, avoiding repeated loading).
+        if inputs["model_hub_id"] == DEFAULT_SDXL_HUB_ID:
+            _set_stage(2, "Loading AI models (first run may take several minutes)…")
+            gen = config.generation
+            _get_sdxl_pipeline(
+                model_hub_id=inputs["model_hub_id"],
+                device=gen.device,
+                torch_dtype=gen.torch_dtype,
+                use_ip_adapter=gen.use_ip_adapter,
+                ip_adapter_hub_id=gen.ip_adapter_hub_id,
+                lora_path_str=str(gen.lora_path) if gen.lora_path else "",
+                lora_scale=gen.lora_scale,
+            )
 
         _set_stage(2, _STAGE_LABELS[1])
         _set_stage(3, _STAGE_LABELS[2])

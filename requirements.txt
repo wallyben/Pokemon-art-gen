@@ -1,7 +1,7 @@
 # ── Core image processing ────────────────────────────────────────────────────
-opencv-python>=4.8.0
-numpy>=1.24.0
-Pillow>=10.0.0
+opencv-python>=4.8.0,<5.0.0
+numpy>=1.24.0,<2.0.0
+Pillow>=10.0.0,<11.0.0
 scikit-image>=0.21.0
 scikit-learn>=1.3.0
 scipy>=1.11.0
@@ -14,25 +14,34 @@ click>=8.1.7
 streamlit>=1.28.0
 
 # ── Deep learning ─────────────────────────────────────────────────────────────
-# diffusers>=0.24.0 required for StableDiffusionXLControlNetPipeline and
-# native IP-Adapter support (load_ip_adapter / set_ip_adapter_scale).
-torch>=2.0.0
-diffusers>=0.24.0
-transformers>=4.35.0
-accelerate>=0.24.0
-safetensors>=0.4.0
+# Verified-compatible stack for Python 3.11, SDXL + ControlNet + IP-Adapter.
+#
+# torch 2.1.x: stable SDXL support; 2.0.x had SDXL decode issues.
+# diffusers 0.27.x: load_ip_adapter() stable, ControlNetModel.from_pretrained OK.
+# transformers 4.37.x: compatible with diffusers 0.27 tokenizer/encoder path.
+# accelerate 0.27.x: model.to(device) helpers tested with above.
+#
+# DO NOT DOWNGRADE diffusers below 0.24.0 — load_ip_adapter was added in 0.24.
+# DO NOT UPGRADE diffusers above 0.28.x without testing — scheduler defaults changed.
+torch>=2.1.0,<2.3.0
+diffusers>=0.27.0,<0.29.0
+transformers>=4.37.0,<4.40.0
+accelerate>=0.27.0,<0.29.0
+safetensors>=0.4.2,<0.5.0
 
 # ── ControlNet conditioning ───────────────────────────────────────────────────
-# Provides OpenposeDetector and other ControlNet preprocessors.
-controlnet-aux>=0.0.7
-
-# ── IP-Adapter (reference image conditioning) ─────────────────────────────────
-# The h94/IP-Adapter weights are downloaded via huggingface_hub.
-# The ip_adapter package provides helper utilities used by diffusers.
-ip-adapter>=0.1.0
+# controlnet-aux 0.0.7: OpenposeDetector compatible with diffusers 0.27.
+# 0.0.8+ may introduce breaking changes; pin to <0.1.0 for stability.
+controlnet-aux>=0.0.7,<0.1.0
 
 # ── Model management ─────────────────────────────────────────────────────────
-huggingface_hub>=0.20.0
+# huggingface_hub 0.21–0.22: snapshot_download stable; cached_download removed.
+# 0.23+ dropped local_dir_use_symlinks param; model_manager handles both.
+#
+# IMPORTANT: do NOT install the ip-adapter PyPI package.
+# It imports huggingface_hub.cached_download which was removed in hub>=0.15.
+# IP-Adapter support is built into diffusers>=0.24 via pipeline.load_ip_adapter().
+huggingface_hub>=0.21.0,<0.23.0
 
 # ── Reference image fetching ──────────────────────────────────────────────────
 requests>=2.31.0

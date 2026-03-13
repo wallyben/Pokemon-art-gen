@@ -382,8 +382,8 @@ class PokemonImageGenerator:
         self,
         pokemon_name: str,
         extras: str,
-        camera_angle: Optional[str],
-        lighting: Optional[str],
+        camera_angle: Optional[str] = None,
+        lighting: Optional[str] = None,
     ) -> str:
         if self.config.optimise_prompt:
             return self._prompt_engine.build(

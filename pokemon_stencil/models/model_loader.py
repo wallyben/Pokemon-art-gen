@@ -21,6 +21,17 @@ Resolution order (applies to all loaders)
 1. ``config.model_local_path`` – used if the directory exists and is non-empty.
 2. ``config.model_hub_id`` – downloaded from HuggingFace Hub on first run.
 
+Compatibility notes
+-------------------
+- Requires ``diffusers>=0.27.0`` for stable ``load_ip_adapter()`` and
+  ``StableDiffusionXLControlNetPipeline``.
+- Requires ``torch>=2.1.0`` for reliable SDXL float32/float16 support.
+- The ``ip-adapter`` PyPI package must NOT be installed; it imports the
+  removed ``huggingface_hub.cached_download`` and will break the import
+  chain.  IP-Adapter support is built into diffusers via ``load_ip_adapter()``.
+- ``fuse_lora(lora_scale=...)`` was removed in diffusers 0.27; this module
+  handles both the old and new API transparently.
+
 Usage::
 
     from pokemon_stencil.models.model_loader import load_sdxl_controlnet_pipeline
@@ -195,7 +206,13 @@ def is_cached(config: GenerationConfig) -> bool:
         key += f"|lora:{config.lora_path}"
     if config.use_ip_adapter:
         key += f"|ipa:{config.ip_adapter_hub_id}"
-    return key in _SDXL_CACHE
+    if key in _SDXL_CACHE:
+        return True
+    # Also check legacy SD pipeline cache.
+    legacy_source = str(_resolve_model_source(
+        config.legacy_model_local_path, config.legacy_model_hub_id
+    ))
+    return legacy_source in _PIPELINE_CACHE
 
 
 # ── Internal helpers ───────────────────────────────────────────────────────────
@@ -226,6 +243,40 @@ def _make_torch_dtype(config: GenerationConfig):
     return dtype_map.get(config.torch_dtype, torch.float32)
 
 
+def _source_str(source: Union[Path, str]) -> str:
+    """Return a string suitable for passing to a diffusers ``from_pretrained`` call."""
+    if isinstance(source, Path):
+        # Always use absolute path so diffusers can locate sub-directories.
+        return str(source.resolve())
+    return source
+
+
+def _apply_memory_optimizations(pipe, device: str) -> None:
+    """
+    Apply memory and throughput optimisations to *pipe*.
+
+    Priority order:
+    1. xformers memory-efficient attention (GPU only, fastest).
+    2. Attention slicing (CPU + GPU, always safe).
+
+    Errors are caught and logged as debug so neither optimisation is a
+    hard requirement.
+    """
+    if device != "cpu":
+        try:
+            pipe.enable_xformers_memory_efficient_attention()
+            logger.debug("xformers memory efficient attention enabled.")
+            return
+        except Exception as exc:
+            logger.debug("xformers unavailable (%s).", exc)
+
+    try:
+        pipe.enable_attention_slicing()
+        logger.debug("Attention slicing enabled.")
+    except Exception as exc:
+        logger.debug("enable_attention_slicing not supported (%s).", exc)
+
+
 def _load_sdxl_from_sources(
     base_source: Union[Path, str],
     openpose_source: Union[Path, str],
@@ -240,45 +291,63 @@ def _load_sdxl_from_sources(
       Text Prompt → Prompt Optimisation → Reference Encoding (IP-Adapter)
       → ControlNet Pose Conditioning → ControlNet Edge Conditioning
       → SDXL Base Diffusion → Optional Character LoRA → Image Generation
+
+    fp16 variant:
+      Used only when ``torch_dtype="float16"`` and device is not CPU.
+      Hub repos expose fp16 safetensors under the ``variant="fp16"`` key;
+      using it on CPU causes a download of redundant weights.
     """
     try:
         import torch
         from diffusers import ControlNetModel, StableDiffusionXLControlNetPipeline
     except ImportError as exc:
         raise ImportError(
-            "torch and diffusers>=0.24.0 are required for SDXL generation. "
-            "Install with:  pip install torch 'diffusers>=0.24.0' transformers "
-            "accelerate safetensors"
+            "torch>=2.1.0 and diffusers>=0.27.0 are required for SDXL generation.\n"
+            "Install with:\n"
+            "  pip install 'torch>=2.1.0,<2.3.0' 'diffusers>=0.27.0,<0.29.0' "
+            "transformers accelerate safetensors"
         ) from exc
 
     torch_dtype = _make_torch_dtype(config)
+    use_fp16_variant = (config.torch_dtype == "float16" and config.device != "cpu")
 
     logger.info("Loading ControlNet OpenPose (SDXL) from '%s' …", openpose_source)
     controlnet_openpose = ControlNetModel.from_pretrained(
-        openpose_source,
+        _source_str(openpose_source),
         torch_dtype=torch_dtype,
+        use_safetensors=True,
     )
 
     logger.info("Loading ControlNet Canny (SDXL) from '%s' …", canny_source)
     controlnet_canny = ControlNetModel.from_pretrained(
-        canny_source,
+        _source_str(canny_source),
         torch_dtype=torch_dtype,
+        use_safetensors=True,
     )
 
     logger.info(
-        "Loading StableDiffusionXLControlNetPipeline from '%s' on %s (dtype=%s) …",
+        "Loading StableDiffusionXLControlNetPipeline from '%s' "
+        "on %s (dtype=%s, fp16_variant=%s) …",
         base_source,
         config.device,
         config.torch_dtype,
+        use_fp16_variant,
     )
 
-    pipe = StableDiffusionXLControlNetPipeline.from_pretrained(
-        base_source,
+    load_kwargs: dict = dict(
         controlnet=[controlnet_openpose, controlnet_canny],
         torch_dtype=torch_dtype,
+        use_safetensors=True,
+    )
+    if use_fp16_variant:
+        load_kwargs["variant"] = "fp16"
+
+    pipe = StableDiffusionXLControlNetPipeline.from_pretrained(
+        _source_str(base_source),
+        **load_kwargs,
     )
     pipe = pipe.to(config.device)
-    pipe.enable_attention_slicing()
+    _apply_memory_optimizations(pipe, config.device)
 
     # ── IP-Adapter (character reference conditioning) ─────────────────────────
     if config.use_ip_adapter:
@@ -294,52 +363,90 @@ def _load_sdxl_from_sources(
 
 def _load_ip_adapter(pipe, config: GenerationConfig) -> None:
     """
-    Load IP-Adapter weights onto *pipe* for reference image conditioning.
+    Load IP-Adapter SDXL weights onto *pipe* for reference image conditioning.
 
-    Uses the SDXL-compatible IP-Adapter from ``h94/IP-Adapter``.
-    The adapter sub-folder ``sdxl_models`` is used automatically by diffusers
-    when the base pipeline is SDXL.
+    Uses diffusers' built-in ``load_ip_adapter()`` (available since 0.24).
+    The ``ip-adapter`` PyPI package must NOT be installed as it imports the
+    removed ``huggingface_hub.cached_download``.
 
-    Args:
-        pipe: Loaded ``StableDiffusionXLControlNetPipeline``.
-        config: Generation config with IP-Adapter hub/local paths.
+    Resolution strategy:
+    - Local directory populated → resolved to absolute path on disk.
+    - Otherwise → Hub repo ID string (diffusers auto-downloads on first use).
+
+    The SDXL IP-Adapter weights live in the ``sdxl_models/`` subfolder of the
+    ``h94/IP-Adapter`` repository.
     """
-    ip_source = _resolve_model_source(
-        config.ip_adapter_local_path, config.ip_adapter_hub_id
-    )
+    local_path = config.ip_adapter_local_path
+    hub_id = config.ip_adapter_hub_id
+
+    if local_path.is_dir() and any(local_path.iterdir()):
+        pretrained = str(local_path.resolve())
+        logger.info("Loading IP-Adapter from local path '%s' …", pretrained)
+    else:
+        pretrained = hub_id
+        logger.info("Loading IP-Adapter from Hub '%s' …", hub_id)
+
     try:
-        logger.info("Loading IP-Adapter from '%s' …", ip_source)
-        # diffusers >= 0.24 supports load_ip_adapter natively on XL pipelines.
-        # The SDXL variant lives in the 'sdxl_models' subfolder.
         pipe.load_ip_adapter(
-            str(ip_source),
+            pretrained,
             subfolder="sdxl_models",
             weight_name="ip-adapter_sdxl.bin",
         )
         pipe.set_ip_adapter_scale(config.ip_adapter_scale)
-        logger.info(
-            "IP-Adapter loaded (scale=%.2f).", config.ip_adapter_scale
-        )
+        logger.info("IP-Adapter loaded (scale=%.2f).", config.ip_adapter_scale)
     except Exception as exc:
         logger.warning(
-            "IP-Adapter loading failed (%s); "
-            "continuing without reference conditioning.",
+            "IP-Adapter loading failed (%s); continuing without reference conditioning.",
             exc,
         )
 
 
 def _apply_lora(pipe, config: GenerationConfig) -> None:
-    """Apply and fuse LoRA weights onto *pipe*."""
+    """
+    Apply LoRA weights onto *pipe* and fuse them into the base weights.
+
+    Handles the diffusers API break between <=0.26 and >=0.27:
+
+    * diffusers <=0.26: ``pipe.fuse_lora(lora_scale=scale)``
+    * diffusers >=0.27: ``pipe.set_adapters([name], [scale])`` then
+      ``pipe.fuse_lora()`` (``lora_scale`` kwarg was removed from fuse_lora).
+
+    Resolution order:
+    1. Try new API (diffusers >= 0.27) with ``set_adapters``.
+    2. Fall back to old API (diffusers <= 0.26) with ``fuse_lora(lora_scale=)``.
+    3. Last resort: fuse without scale (logs a warning).
+    """
     lora_path = Path(config.lora_path)
-    logger.info(
-        "Applying LoRA weights from '%s' (scale=%.2f).",
-        lora_path,
-        config.lora_scale,
-    )
+    scale = config.lora_scale
+    logger.info("Applying LoRA weights from '%s' (scale=%.2f).", lora_path, scale)
+
     try:
         pipe.load_lora_weights(str(lora_path))
-        pipe.fuse_lora(lora_scale=config.lora_scale)
-        logger.info("LoRA applied and fused successfully.")
+
+        # diffusers >= 0.27: set_adapters + fuse_lora (no lora_scale kwarg)
+        try:
+            pipe.set_adapters(["default_0"], adapter_weights=[scale])
+            pipe.fuse_lora()
+            logger.info("LoRA fused via set_adapters + fuse_lora (diffusers>=0.27).")
+            return
+        except (TypeError, AttributeError):
+            pass
+
+        # diffusers <= 0.26: fuse_lora(lora_scale=scale)
+        try:
+            pipe.fuse_lora(lora_scale=scale)
+            logger.info("LoRA fused via fuse_lora(lora_scale=…) (diffusers<=0.26).")
+            return
+        except TypeError:
+            pass
+
+        # Last resort: fuse without scale.
+        pipe.fuse_lora()
+        logger.warning(
+            "LoRA fused without scale adjustment (API incompatible with scale=%.2f).",
+            scale,
+        )
+
     except Exception as exc:
         logger.warning("LoRA loading failed (%s); continuing without LoRA.", exc)
 
@@ -367,13 +474,14 @@ def _load_sd_from_source(
     )
 
     pipe = StableDiffusionPipeline.from_pretrained(
-        source,
+        _source_str(source),
         torch_dtype=torch_dtype,
         safety_checker=None,
         requires_safety_checker=False,
+        use_safetensors=True,
     )
     pipe = pipe.to(config.device)
-    pipe.enable_attention_slicing()
+    _apply_memory_optimizations(pipe, config.device)
     logger.info("StableDiffusionPipeline loaded.")
     return pipe
 
@@ -398,12 +506,16 @@ def _load_controlnet_from_sources(
 
     logger.info("Loading SD15 ControlNet OpenPose from '%s' …", openpose_source)
     controlnet_openpose = ControlNetModel.from_pretrained(
-        openpose_source, torch_dtype=torch_dtype,
+        _source_str(openpose_source),
+        torch_dtype=torch_dtype,
+        use_safetensors=True,
     )
 
     logger.info("Loading SD15 ControlNet Canny from '%s' …", canny_source)
     controlnet_canny = ControlNetModel.from_pretrained(
-        canny_source, torch_dtype=torch_dtype,
+        _source_str(canny_source),
+        torch_dtype=torch_dtype,
+        use_safetensors=True,
     )
 
     logger.info(
@@ -412,14 +524,15 @@ def _load_controlnet_from_sources(
     )
 
     pipe = StableDiffusionControlNetPipeline.from_pretrained(
-        base_source,
+        _source_str(base_source),
         controlnet=[controlnet_openpose, controlnet_canny],
         torch_dtype=torch_dtype,
         safety_checker=None,
         requires_safety_checker=False,
+        use_safetensors=True,
     )
     pipe = pipe.to(config.device)
-    pipe.enable_attention_slicing()
+    _apply_memory_optimizations(pipe, config.device)
 
     if config.lora_path and Path(config.lora_path).is_file():
         _apply_lora(pipe, config)
