@@ -567,14 +567,19 @@ def _serialise_config(config: PipelineConfig) -> Dict:
     """
     Serialise the generation and processing sub-configs to a plain dict.
 
-    Only the fields needed by the worker function are included.
+    Includes all fields needed by the SDXL worker function.
     """
     gen = config.generation
     proc = config.processing
     return {
         "generation": {
+            # SDXL base model
             "model_local_path": str(gen.model_local_path),
             "model_hub_id": gen.model_hub_id,
+            # Legacy paths
+            "legacy_model_local_path": str(gen.legacy_model_local_path),
+            "legacy_model_hub_id": gen.legacy_model_hub_id,
+            # ControlNet (SDXL-compatible)
             "controlnet_openpose_local_path": str(gen.controlnet_openpose_local_path),
             "controlnet_openpose_hub_id": gen.controlnet_openpose_hub_id,
             "controlnet_canny_local_path": str(gen.controlnet_canny_local_path),
@@ -582,10 +587,21 @@ def _serialise_config(config: PipelineConfig) -> Dict:
             "use_controlnet": gen.use_controlnet,
             "controlnet_openpose_scale": gen.controlnet_openpose_scale,
             "controlnet_canny_scale": gen.controlnet_canny_scale,
+            # IP-Adapter
+            "ip_adapter_local_path": str(gen.ip_adapter_local_path),
+            "ip_adapter_hub_id": gen.ip_adapter_hub_id,
+            "use_ip_adapter": gen.use_ip_adapter,
+            "ip_adapter_scale": gen.ip_adapter_scale,
+            "ip_adapter_min_images": gen.ip_adapter_min_images,
+            "ip_adapter_max_images": gen.ip_adapter_max_images,
+            # LoRA
             "lora_path": str(gen.lora_path) if gen.lora_path else None,
+            "lora_dir": str(gen.lora_dir),
             "lora_scale": gen.lora_scale,
+            # Reference encoding (legacy img2img)
             "use_reference_encoding": gen.use_reference_encoding,
             "reference_strength": gen.reference_strength,
+            # Generation parameters
             "num_inference_steps": gen.num_inference_steps,
             "guidance_scale": gen.guidance_scale,
             "width": gen.width,
@@ -593,9 +609,11 @@ def _serialise_config(config: PipelineConfig) -> Dict:
             "seed": gen.seed,
             "torch_dtype": gen.torch_dtype,
             "device": gen.device,
+            # Prompt
             "style_suffix": gen.style_suffix,
             "negative_prompt": gen.negative_prompt,
             "optimise_prompt": gen.optimise_prompt,
+            # Composition
             "use_composition_guidance": gen.use_composition_guidance,
             "composition_strength": gen.composition_strength,
         },
@@ -613,6 +631,8 @@ def _serialise_config(config: PipelineConfig) -> Dict:
             "adaptive_edge_thinning": proc.adaptive_edge_thinning,
             "merge_small_components": proc.merge_small_components,
             "min_island_area": proc.min_island_area,
+            "merge_adjacent_regions": proc.merge_adjacent_regions,
+            "region_merge_threshold": proc.region_merge_threshold,
         },
     }
 
@@ -627,15 +647,21 @@ def _deserialise_config(cd: Dict):
     from pokemon_stencil.config import GenerationConfig, ProcessingConfig
 
     gen_d = dict(cd["generation"])
-    gen_d["model_local_path"] = Path(gen_d["model_local_path"])
-    gen_d["controlnet_openpose_local_path"] = Path(gen_d["controlnet_openpose_local_path"])
-    gen_d["controlnet_canny_local_path"] = Path(gen_d["controlnet_canny_local_path"])
-    if gen_d.get("lora_path"):
-        gen_d["lora_path"] = Path(gen_d["lora_path"])
-    else:
-        gen_d["lora_path"] = None
-    # Remove fields not in GenerationConfig that may have been added.
-    gen_d.pop("legacy_model_hub_id", None)
+
+    # Convert path strings to Path objects.
+    for path_key in (
+        "model_local_path",
+        "legacy_model_local_path",
+        "controlnet_openpose_local_path",
+        "controlnet_canny_local_path",
+        "ip_adapter_local_path",
+        "lora_dir",
+    ):
+        if path_key in gen_d:
+            gen_d[path_key] = Path(gen_d[path_key])
+
+    gen_d["lora_path"] = Path(gen_d["lora_path"]) if gen_d.get("lora_path") else None
+
     gen_cfg = GenerationConfig(**gen_d)
 
     proc_d = dict(cd["processing"])

@@ -8,6 +8,11 @@ RGB colour.
 
 LAB space is used because Euclidean distance in LAB correlates closely with
 human-perceived colour difference (ΔE), giving perceptually even clusters.
+
+Post-clustering, adjacent region merging fuses colour clusters whose ΔE is
+below ``config.region_merge_threshold``, reducing the total layer count to
+the 4–8 range recommended for stencil painting while preserving edge
+boundaries.
 """
 
 import logging
@@ -125,6 +130,13 @@ class ColourSegmenter:
         for new_idx, layer in enumerate(layers):
             layer.index = new_idx
 
+        # ── Optional adjacent region merging ──────────────────────────────────
+        if getattr(self.config, "merge_adjacent_regions", False) and len(layers) > 1:
+            arr_lab_hw = arr_lab.reshape(h, w, 3)
+            layers = self._merge_close_layers(layers, arr_lab_hw)
+            for new_idx, layer in enumerate(layers):
+                layer.index = new_idx
+
         logger.info("Segmentation produced %d layer(s).", len(layers))
         return layers
 
@@ -180,6 +192,90 @@ class ColourSegmenter:
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
         return mask
+
+    def _merge_close_layers(
+        self,
+        layers: List[ColourLayer],
+        arr_lab: np.ndarray,
+    ) -> List[ColourLayer]:
+        """
+        Merge colour layers whose LAB ΔE distance is below the configured
+        ``region_merge_threshold``.
+
+        Iterates greedily: the two closest layers (by ΔE of their
+        representative LAB colours) are merged first, until no pair
+        falls below the threshold or the layer count reaches 4 (stencil
+        minimum per spec).
+
+        Args:
+            layers: Pre-sorted list of ColourLayer objects.
+            arr_lab: HxWx3 LAB image array (for computing merged colour).
+
+        Returns:
+            Merged layer list (sorted by descending pixel count, re-indexed).
+        """
+        threshold = getattr(self.config, "region_merge_threshold", 15.0)
+        min_layers = 4
+
+        def _lab_colour(layer: ColourLayer) -> np.ndarray:
+            """Compute the mean LAB colour of a layer from the original array."""
+            mask_flat = layer.mask.flatten() > 0
+            if not mask_flat.any():
+                return np.zeros(3, dtype=np.float32)
+            lab_flat = arr_lab.reshape(-1, 3)
+            return lab_flat[mask_flat].mean(axis=0)
+
+        def _delta_e(a: np.ndarray, b: np.ndarray) -> float:
+            """Euclidean ΔE in OpenCV LAB space."""
+            return float(np.linalg.norm(a - b))
+
+        merged = list(layers)
+        while len(merged) > min_layers:
+            lab_colours = [_lab_colour(l) for l in merged]
+            n = len(merged)
+            best_delta = float("inf")
+            best_i, best_j = 0, 1
+            for i in range(n):
+                for j in range(i + 1, n):
+                    d = _delta_e(lab_colours[i], lab_colours[j])
+                    if d < best_delta:
+                        best_delta, best_i, best_j = d, i, j
+            if best_delta >= threshold:
+                break
+
+            # Merge layer j into layer i (larger absorbs smaller).
+            li, lj = merged[best_i], merged[best_j]
+            combined_mask = cv2.bitwise_or(li.mask, lj.mask)
+            combined_count = li.pixel_count + lj.pixel_count
+
+            # Recompute representative colour as median of combined pixels.
+            merged_colour = tuple(
+                np.median(
+                    np.stack([li.colour_rgb, lj.colour_rgb], axis=0),
+                    axis=0,
+                ).astype(int).tolist()
+            )
+
+            merged_layer = ColourLayer(
+                index=best_i,
+                colour_rgb=merged_colour,
+                mask=combined_mask,
+                pixel_count=combined_count,
+            )
+
+            del merged[best_j]
+            merged[best_i] = merged_layer
+            logger.debug(
+                "Merged layer %d into %d (ΔE=%.1f, threshold=%.1f).",
+                best_j, best_i, best_delta, threshold,
+            )
+
+        merged.sort(key=lambda l: l.pixel_count, reverse=True)
+        logger.info(
+            "Region merging reduced layers from %d to %d.",
+            len(layers), len(merged),
+        )
+        return merged
 
     @staticmethod
     def _rgb_to_lab(arr_rgb: np.ndarray) -> np.ndarray:

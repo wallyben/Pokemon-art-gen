@@ -37,10 +37,11 @@ _CLIP_SPECIAL_TOKENS: int = 2
 #: Effective budget for user-visible tokens.
 _EFFECTIVE_LIMIT: int = CLIP_TOKEN_LIMIT - _CLIP_SPECIAL_TOKENS
 
-#: Style tokens appended to every positive prompt.
+#: Style tokens appended to every positive prompt (per spec).
 DEFAULT_STYLE_TOKENS: str = (
-    "clean cartoon illustration, bold outlines, vector style, "
-    "high contrast lighting"
+    "clean cartoon illustration, bold black outlines, vector illustration style, "
+    "high contrast lighting, flat colour shapes, poster illustration style, "
+    "stencil-friendly composition"
 )
 
 #: Default negative prompt for stencil art.

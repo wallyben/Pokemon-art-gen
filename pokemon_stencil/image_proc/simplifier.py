@@ -13,9 +13,10 @@ Pipeline stages
 4. Morphological open/close  – remove speckling
 5. Adaptive edge thinning    – thin over-thick edges to aid clean cutting
 6. Component merging         – absorb small floating islands into neighbours
-7. Median blur               – final smoothing pass
+7. Colour noise reduction    – suppress isolated colour outliers
+8. Median blur               – final smoothing pass
 
-Stencil safety improvements (stages 5-6) are controlled by:
+Stencil safety improvements (stages 5-7) are controlled by:
 - ``config.adaptive_edge_thinning``  (default True)
 - ``config.merge_small_components``  (default True)
 - ``config.min_island_area``         (default 200 px)
@@ -74,6 +75,7 @@ class ImageSimplifier:
         if self.config.merge_small_components:
             arr = self._merge_small_components(arr, self.config.min_island_area)
 
+        arr = self._reduce_colour_noise(arr)
         arr = self._median_blur(arr)
         result = Image.fromarray(cv2.cvtColor(arr, cv2.COLOR_BGR2RGB))
         logger.debug("Simplification complete; output size: %s", result.size)
@@ -253,6 +255,34 @@ class ImageSimplifier:
             logger.debug("Merged %d small component(s) (min_area=%d px).", merged_count, min_area)
 
         return result
+
+    @staticmethod
+    def _reduce_colour_noise(arr: np.ndarray) -> np.ndarray:
+        """
+        Suppress isolated colour outliers to produce cleaner flat regions.
+
+        Applies a non-local means denoising pass on the luminance channel
+        (LAB colour space) to remove high-frequency colour speckle while
+        keeping colour boundaries sharp.  This step targets the "salt and
+        pepper" noise left by posterisation and component merging.
+
+        Args:
+            arr: OpenCV BGR uint8 image.
+
+        Returns:
+            Colour-denoised BGR image.
+        """
+        try:
+            lab = cv2.cvtColor(arr, cv2.COLOR_BGR2LAB)
+            l_ch, a_ch, b_ch = cv2.split(lab)
+            # Denoise luminance only – preserve hue boundaries.
+            l_denoised = cv2.fastNlMeansDenoising(l_ch, h=7, templateWindowSize=7,
+                                                   searchWindowSize=21)
+            lab_denoised = cv2.merge([l_denoised, a_ch, b_ch])
+            return cv2.cvtColor(lab_denoised, cv2.COLOR_LAB2BGR)
+        except Exception:
+            # fastNlMeansDenoising may fail on some OpenCV builds; skip gracefully.
+            return arr
 
     @staticmethod
     def _median_blur(arr: np.ndarray, ksize: int = 5) -> np.ndarray:
