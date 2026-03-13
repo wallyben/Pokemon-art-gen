@@ -479,6 +479,96 @@ def cmd_factory(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# fetch-refs command
+# ─────────────────────────────────────────────────────────────────────────────
+
+@main.command("fetch-refs")
+@click.argument("pokemon_name", metavar="POKEMON_NAME")
+@click.option(
+    "--output-dir",
+    default="refs",
+    show_default=True,
+    type=click.Path(file_okay=False, writable=True),
+    help="Root directory for reference images (images go into POKEMON_NAME subdir).",
+)
+@click.option(
+    "--max-images",
+    default=25,
+    show_default=True,
+    type=click.IntRange(1, 200),
+    help="Maximum number of reference images to download.",
+)
+@click.option(
+    "--prepare/--no-prepare",
+    default=True,
+    show_default=True,
+    help="Run prepare step (dedup + normalise) after fetching.",
+)
+@click.option(
+    "--verbose",
+    is_flag=True,
+    default=False,
+    help="Enable DEBUG-level logging.",
+)
+def cmd_fetch_refs(
+    pokemon_name: str,
+    output_dir: str,
+    max_images: int,
+    prepare: bool,
+    verbose: bool,
+) -> None:
+    """Download reference images for POKEMON_NAME from public sources.
+
+    Images are saved to OUTPUT_DIR/POKEMON_NAME/ (e.g. ``refs/pikachu/``).
+    Low-resolution images (<256px) are discarded automatically.
+
+    \b
+    Examples:
+      pokemon-stencil fetch-refs Pikachu
+      pokemon-stencil fetch-refs mr-mime --max-images 10 --output-dir my_refs
+      pokemon-stencil fetch-refs Gengar --no-prepare
+    """
+    setup_logging(verbose=verbose)
+    safe_name = pokemon_name.lower().replace(" ", "-")
+    dest_dir = Path(output_dir) / safe_name
+    logger.info(
+        "Command: fetch-refs | pokemon=%s | dest=%s | max=%d",
+        safe_name, dest_dir, max_images,
+    )
+
+    from pokemon_stencil.data.reference_fetcher import ReferenceImageFetcher
+
+    fetcher = ReferenceImageFetcher(max_images=max_images)
+
+    try:
+        saved = fetcher.fetch_references(pokemon_name, dest_dir)
+    except Exception as exc:
+        logger.error("fetch-refs failed: %s", exc, exc_info=verbose)
+        click.echo(f"✗ Failed to fetch references: {exc}", err=True)
+        raise SystemExit(1)
+
+    if not saved:
+        click.echo(
+            f"✗ No usable images found for '{pokemon_name}'. "
+            "Check the Pokémon name spelling.",
+            err=True,
+        )
+        raise SystemExit(1)
+
+    click.echo(f"Downloaded {len(saved)} image(s) → {dest_dir}")
+
+    if prepare and saved:
+        try:
+            kept = fetcher.prepare_reference_images(dest_dir)
+            click.echo(f"Prepared: {len(kept)} image(s) kept after dedup/normalise.")
+        except Exception as exc:
+            logger.warning("prepare_reference_images failed: %s", exc)
+            click.echo(f"  (prepare step skipped: {exc})", err=True)
+
+    click.echo("Done.")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # inspect command
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -551,6 +641,66 @@ def cmd_inspect(
         click.echo(f"Visualisation saved → {save}")
     else:
         vis.show()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# dashboard command
+# ─────────────────────────────────────────────────────────────────────────────
+
+@main.command("dashboard")
+@click.option(
+    "--port",
+    default=8501,
+    show_default=True,
+    type=click.IntRange(1024, 65535),
+    help="Port for the Streamlit server.",
+)
+@click.option(
+    "--host",
+    default="localhost",
+    show_default=True,
+    help="Hostname / IP address to bind the Streamlit server to.",
+)
+@click.option(
+    "--browser/--no-browser",
+    default=True,
+    show_default=True,
+    help="Automatically open a browser tab when the dashboard starts.",
+)
+def cmd_dashboard(port: int, host: str, browser: bool) -> None:
+    """Launch the interactive Streamlit dashboard.
+
+    Opens a local browser UI where you can enter a Pokémon name, describe
+    a pose, adjust candidate counts, and generate stencil SVG packs — all
+    without using the command line further.
+
+    \b
+    Examples:
+      pokemon-stencil dashboard
+      pokemon-stencil dashboard --port 8502 --no-browser
+    """
+    import subprocess
+
+    app_path = Path(__file__).parent / "dashboard" / "app.py"
+    if not app_path.exists():
+        click.echo(f"✗ Dashboard app not found at {app_path}", err=True)
+        sys.exit(1)
+
+    cmd = [
+        sys.executable, "-m", "streamlit", "run", str(app_path),
+        "--server.port", str(port),
+        "--server.address", host,
+        "--server.headless", "false" if browser else "true",
+        "--browser.gatherUsageStats", "false",
+    ]
+
+    click.echo(f"Starting dashboard on http://{host}:{port} …")
+    click.echo("Press Ctrl+C to stop.")
+
+    try:
+        subprocess.run(cmd, check=False)
+    except KeyboardInterrupt:
+        click.echo("\nDashboard stopped.")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

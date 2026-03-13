@@ -35,9 +35,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
+import numpy as np
 from PIL import Image
 
 from pokemon_stencil.config import PipelineConfig
+from pokemon_stencil.image_gen.composition_guidance import generate_composition_map
 from pokemon_stencil.image_gen.generator import PokemonImageGenerator
 from pokemon_stencil.image_gen.style_transfer import StencilStyleTransfer
 from pokemon_stencil.image_proc.loader import ReferenceImageLoader
@@ -154,6 +156,17 @@ class Pipeline:
             ref_images = self._loader.load_from_directory(reference_dir)
             logger.info("Loaded %d reference image(s).", len(ref_images))
 
+        # ── Stage 1b: Composition guidance map ────────────────────────────────
+        composition_map: Optional[np.ndarray] = None
+        if (
+            not self.config.skip_generation
+            and self.config.generation.use_composition_guidance
+            and ref_images
+        ):
+            logger.info("Stage 1b: Generating composition guidance map.")
+            composition_map = generate_composition_map(ref_images[0])
+            logger.info("Stage 1b: Composition guidance map ready.")
+
         # ── Stage 2: Generate (or adopt) source image ─────────────────────────
         if self.config.skip_generation:
             if not ref_images:
@@ -168,6 +181,7 @@ class Pipeline:
                 ref_images=ref_images,
                 run_name=run_name,
                 prompt_extra=prompt_extra,
+                composition_map=composition_map,
             )
 
         # Save source images and record paths.
@@ -250,8 +264,19 @@ class Pipeline:
         ref_images: List[Image.Image],
         run_name: str,
         prompt_extra: str,
+        composition_map: Optional[np.ndarray] = None,
     ) -> List[Image.Image]:
-        """Stage 2: invoke Stable Diffusion to produce source images."""
+        """Stage 2: invoke Stable Diffusion to produce source images.
+
+        Args:
+            pokemon_name: Canonical Pokémon name.
+            ref_images: Pre-loaded reference images (informational; logged).
+            run_name: Run identifier used in log messages.
+            prompt_extra: Additional text appended to the SD prompt.
+            composition_map: Optional structural conditioning map produced in
+                Stage 1b.  Forwarded to
+                :meth:`~pokemon_stencil.image_gen.generator.PokemonImageGenerator.generate`.
+        """
         if self._generator is None:
             self._generator = PokemonImageGenerator(self.config.generation)
 
@@ -261,6 +286,7 @@ class Pipeline:
             prompt_extras=prompt_extra,
             num_images=1,
             seed=self.config.generation.seed,
+            composition_map=composition_map,
         )
         return images
 
