@@ -31,6 +31,10 @@ setup(
         "transformers>=4.31.0",
         "accelerate>=0.21.0",
         "safetensors>=0.3.3",
+        # ControlNet conditioning preprocessors
+        "controlnet-aux>=0.0.7",
+        # Model management / Hub downloads
+        "huggingface_hub>=0.19.0",
     ],
     entry_points={
         "console_scripts": [
