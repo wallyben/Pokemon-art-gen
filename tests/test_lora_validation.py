@@ -143,11 +143,26 @@ class TestMaxDimHeuristic:
             ok, _ = validate_lora_sdxl_compatible(f)
         assert ok is True
 
-    def test_small_dim_rejected(self, tmp_path):
+    def test_768_dim_rejected(self, tmp_path):
         f = self._f(tmp_path)
         with _patch_st(None, {"lora_generic.lora_down.weight": [4, 768]}):
             ok, msg = validate_lora_sdxl_compatible(f)
         assert ok is False and _SDXL_REJECT_MSG in msg
+
+    def test_1280_dim_rejected(self, tmp_path):
+        """1280 is the SD1.5 UNet max channel dim — must be rejected."""
+        f = self._f(tmp_path)
+        with _patch_st(None, {"lora_generic.lora_down.weight": [4, 1280]}):
+            ok, msg = validate_lora_sdxl_compatible(f)
+        assert ok is False and _SDXL_REJECT_MSG in msg
+
+    def test_ambiguous_range_rejected(self, tmp_path):
+        """Dims in 1280-2048 range must be rejected conservatively."""
+        f = self._f(tmp_path)
+        for dim in (1281, 1500, 1900, 2047):
+            with _patch_st(None, {"lora_generic.lora_down.weight": [4, dim]}):
+                ok, msg = validate_lora_sdxl_compatible(f)
+            assert ok is False and _SDXL_REJECT_MSG in msg, f"Expected rejection for dim={dim}"
 
 
 class TestMetadataPriority:
