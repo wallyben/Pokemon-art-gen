@@ -62,9 +62,9 @@ def default_config() -> GenerationConfig:
 
 
 def _patch_loader(pipe_mock: MagicMock):
-    """Patch load_sd_pipeline to return *pipe_mock* directly."""
+    """Patch load_sdxl_controlnet_pipeline to return *pipe_mock* directly."""
     return patch(
-        "pokemon_stencil.image_gen.generator.load_sd_pipeline",
+        "pokemon_stencil.image_gen.generator.load_sdxl_controlnet_pipeline",
         return_value=pipe_mock,
     )
 
@@ -203,7 +203,7 @@ class TestGenerate:
         pipe = _make_pipe_mock(_synthetic_image())
         gen = PokemonImageGenerator(default_config)
         with patch(
-            "pokemon_stencil.image_gen.generator.load_sd_pipeline",
+            "pokemon_stencil.image_gen.generator.load_sdxl_controlnet_pipeline",
             return_value=pipe,
         ), patch.object(gen, "_make_generator", wraps=gen._make_generator) as mock_mg:
             gen.generate("Pikachu", num_images=1)
@@ -214,7 +214,7 @@ class TestGenerate:
         pipe = _make_pipe_mock(_synthetic_image())
         gen = PokemonImageGenerator(default_config)
         with patch(
-            "pokemon_stencil.image_gen.generator.load_sd_pipeline",
+            "pokemon_stencil.image_gen.generator.load_sdxl_controlnet_pipeline",
             return_value=pipe,
         ), patch.object(gen, "_make_generator", wraps=gen._make_generator) as mock_mg:
             gen.generate("Pikachu", num_images=1, seed=999)

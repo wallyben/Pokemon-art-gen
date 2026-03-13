@@ -77,15 +77,13 @@ class TestResolveModelSource:
         local.mkdir()
         (local / "model.safetensors").write_bytes(b"\x00")  # non-empty dir
 
-        cfg = GenerationConfig(model_local_path=local)
-        assert _resolve_model_source(cfg) == local
+        assert _resolve_model_source(local, "runwayml/stable-diffusion-v1-5") == local
 
     def test_returns_hub_id_when_local_path_absent(self, tmp_path):
-        cfg = GenerationConfig(
-            model_local_path=tmp_path / "nonexistent",
-            model_hub_id="runwayml/stable-diffusion-v1-5",
+        result = _resolve_model_source(
+            tmp_path / "nonexistent",
+            "runwayml/stable-diffusion-v1-5",
         )
-        result = _resolve_model_source(cfg)
         assert result == "runwayml/stable-diffusion-v1-5"
 
     def test_returns_hub_id_when_local_path_empty_dir(self, tmp_path):
@@ -93,19 +91,11 @@ class TestResolveModelSource:
         empty_local.mkdir()
         # Directory exists but is empty → fall through to Hub
 
-        cfg = GenerationConfig(
-            model_local_path=empty_local,
-            model_hub_id="runwayml/stable-diffusion-v1-5",
-        )
-        result = _resolve_model_source(cfg)
+        result = _resolve_model_source(empty_local, "runwayml/stable-diffusion-v1-5")
         assert result == "runwayml/stable-diffusion-v1-5"
 
     def test_custom_hub_id_used(self, tmp_path):
-        cfg = GenerationConfig(
-            model_local_path=tmp_path / "none",
-            model_hub_id="custom-org/custom-model",
-        )
-        result = _resolve_model_source(cfg)
+        result = _resolve_model_source(tmp_path / "none", "custom-org/custom-model")
         assert result == "custom-org/custom-model"
 
 
@@ -155,7 +145,7 @@ class TestLoadSdPipeline:
         fake_torch = _make_torch_mock()
         fake_diffusers = _make_diffusers_mock(pipe)
 
-        cfg = GenerationConfig(model_hub_id="runwayml/stable-diffusion-v1-5")
+        cfg = GenerationConfig(legacy_model_hub_id="runwayml/stable-diffusion-v1-5")
         with patch.dict(sys.modules, {"torch": fake_torch, "diffusers": fake_diffusers}):
             load_sd_pipeline(cfg)
 
@@ -189,8 +179,8 @@ class TestLoadSdPipeline:
 
         # Use a nonexistent local path so resolution falls through to hub IDs.
         absent = tmp_path / "no_local"
-        cfg_a = GenerationConfig(model_local_path=absent, model_hub_id="org/model-a")
-        cfg_b = GenerationConfig(model_local_path=absent, model_hub_id="org/model-b")
+        cfg_a = GenerationConfig(legacy_model_local_path=absent, legacy_model_hub_id="org/model-a")
+        cfg_b = GenerationConfig(legacy_model_local_path=absent, legacy_model_hub_id="org/model-b")
 
         with patch.dict(sys.modules, {"torch": fake_torch, "diffusers": fake_diffusers}):
             result_a = load_sd_pipeline(cfg_a)
@@ -217,13 +207,13 @@ class TestLoadSdPipeline:
         fake_torch = _make_torch_mock()
         fake_diffusers = _make_diffusers_mock(pipe)
 
-        cfg = GenerationConfig(model_local_path=local)
+        cfg = GenerationConfig(legacy_model_local_path=local)
         with patch.dict(sys.modules, {"torch": fake_torch, "diffusers": fake_diffusers}):
             load_sd_pipeline(cfg)
 
-        # Verify from_pretrained was called with the local Path, not Hub ID
+        # Verify from_pretrained was called with the local path (may be str or Path), not Hub ID
         args, _ = fake_diffusers.StableDiffusionPipeline.from_pretrained.call_args
-        assert args[0] == local
+        assert str(args[0]) == str(local)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -263,8 +253,8 @@ class TestCacheHelpers:
 
         # Use a nonexistent local path so each config resolves to its hub ID.
         absent = tmp_path / "no_local"
-        cfg_a = GenerationConfig(model_local_path=absent, model_hub_id="org/model-x")
-        cfg_b = GenerationConfig(model_local_path=absent, model_hub_id="org/model-y")
+        cfg_a = GenerationConfig(legacy_model_local_path=absent, legacy_model_hub_id="org/model-x")
+        cfg_b = GenerationConfig(legacy_model_local_path=absent, legacy_model_hub_id="org/model-y")
 
         fake_torch = _make_torch_mock()
         fake_diffusers = ModuleType("diffusers")

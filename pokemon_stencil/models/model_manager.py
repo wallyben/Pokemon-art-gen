@@ -215,11 +215,20 @@ class ModelManager:
 
         local_path.mkdir(parents=True, exist_ok=True)
         try:
-            snapshot_download(
-                repo_id=hub_id,
-                local_dir=str(local_path),
-                local_dir_use_symlinks=False,
-            )
+            # ``local_dir_use_symlinks`` was deprecated in huggingface_hub 0.21
+            # and removed in 0.23.  Try the old kwarg first; fall back to the
+            # kwarg-free call so the code works across the full 0.21–0.22 range.
+            try:
+                snapshot_download(
+                    repo_id=hub_id,
+                    local_dir=str(local_path),
+                    local_dir_use_symlinks=False,
+                )
+            except TypeError:
+                snapshot_download(
+                    repo_id=hub_id,
+                    local_dir=str(local_path),
+                )
             logger.info("Downloaded %s to %s", hub_id, local_path)
         except Exception as exc:
             logger.error("Failed to download %s: %s", hub_id, exc)
