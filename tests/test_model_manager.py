@@ -45,19 +45,19 @@ class TestModelManagerStatus:
         manager = ModelManager(models_root=tmp_path)
         status = manager.status()
         assert all(v is False for v in status.values())
-        assert len(status) == 3  # dreamshaper + openpose + canny
+        assert len(status) == 4  # sdxl + openpose + canny + ip_adapter
 
     def test_populated_directory_returns_true(self, tmp_path):
-        # Populate the dreamshaper directory.
-        ds_dir = tmp_path / "dreamshaper"
-        ds_dir.mkdir()
-        (ds_dir / "model.safetensors").write_bytes(b"\x00")
+        # Populate the sdxl directory.
+        sdxl_dir = tmp_path / "sdxl"
+        sdxl_dir.mkdir()
+        (sdxl_dir / "model.safetensors").write_bytes(b"\x00")
 
         manager = ModelManager(models_root=tmp_path)
         status = manager.status()
 
-        from pokemon_stencil.config import DEFAULT_DREAMSHAPER_HUB_ID
-        assert status[DEFAULT_DREAMSHAPER_HUB_ID] is True
+        from pokemon_stencil.config import DEFAULT_SDXL_HUB_ID
+        assert status[DEFAULT_SDXL_HUB_ID] is True
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -69,7 +69,7 @@ class TestEnsureDirectories:
         manager = ModelManager(models_root=tmp_path)
         manager.ensure_directories()
 
-        expected_names = {"dreamshaper", "controlnet_openpose", "controlnet_canny"}
+        expected_names = {"sdxl", "controlnet_pose", "controlnet_canny", "ip_adapter", "lora"}
         created = {d.name for d in tmp_path.iterdir() if d.is_dir()}
         assert expected_names == created
 
@@ -106,10 +106,10 @@ class TestEnsureModels:
         assert all(v is False for v in availability.values())
 
     def test_skips_already_present_models(self, tmp_path):
-        # Pre-populate dreamshaper.
-        ds_dir = tmp_path / "dreamshaper"
-        ds_dir.mkdir()
-        (ds_dir / "config.json").write_bytes(b"\x00")
+        # Pre-populate the SDXL base model directory.
+        sdxl_dir = tmp_path / "sdxl"
+        sdxl_dir.mkdir()
+        (sdxl_dir / "config.json").write_bytes(b"\x00")
 
         download_calls = []
 
@@ -125,10 +125,10 @@ class TestEnsureModels:
         with patch.dict(__import__("sys").modules, {"huggingface_hub": fake_hub}):
             manager.ensure_models(download_missing=True)
 
-        # DreamShaper was already present; only the two ControlNets should be downloaded.
-        from pokemon_stencil.config import DEFAULT_DREAMSHAPER_HUB_ID
-        assert DEFAULT_DREAMSHAPER_HUB_ID not in download_calls
-        assert len(download_calls) == 2
+        # SDXL was already present; only the three remaining models should be downloaded.
+        from pokemon_stencil.config import DEFAULT_SDXL_HUB_ID
+        assert DEFAULT_SDXL_HUB_ID not in download_calls
+        assert len(download_calls) == 3
 
     def test_raises_import_error_when_hf_hub_missing(self, tmp_path):
         manager = ModelManager(models_root=tmp_path)

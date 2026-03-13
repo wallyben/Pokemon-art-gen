@@ -462,7 +462,7 @@ class TestDeserialiseConfig:
 class TestFactoryConfig:
     def test_default_count(self):
         fc = FactoryConfig()
-        assert fc.count == 10
+        assert fc.count == 20
 
     def test_default_top_k(self):
         fc = FactoryConfig()

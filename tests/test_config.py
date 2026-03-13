@@ -20,9 +20,9 @@ class TestGenerationConfig:
         cfg = GenerationConfig()
         assert cfg.device == "cpu"
         assert cfg.torch_dtype == "float32"
-        assert cfg.num_inference_steps == 25
-        assert cfg.width == 512
-        assert cfg.height == 512
+        assert cfg.num_inference_steps == 28
+        assert cfg.width == 1024
+        assert cfg.height == 1024
 
     def test_model_id_returns_hub_id_when_local_absent(self, tmp_path):
         cfg = GenerationConfig(model_local_path=tmp_path / "nonexistent")
@@ -47,7 +47,7 @@ class TestProcessingConfig:
     def test_defaults(self):
         cfg = ProcessingConfig()
         assert cfg.n_colors == 6
-        assert cfg.output_size == (512, 512)
+        assert cfg.output_size == (1024, 1024)
         assert cfg.min_region_area > 0
 
     def test_custom_n_colors(self):
