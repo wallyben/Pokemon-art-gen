@@ -43,6 +43,10 @@ from pokemon_stencil.image_gen.composition_guidance import (
     generate_composition_map,
 )
 from pokemon_stencil.image_gen.generator import PokemonImageGenerator
+from pokemon_stencil.image_gen.prompt_engine import (
+    CAMERA_ANGLE_TOKENS,
+    LIGHTING_TOKENS,
+)
 from pokemon_stencil.image_gen.style_transfer import StencilStyleTransfer
 from pokemon_stencil.image_proc.loader import ReferenceImageLoader
 from pokemon_stencil.image_proc.segmenter import ColourLayer, ColourSegmenter
@@ -420,6 +424,9 @@ class FactoryRunner:
         *reference_dir* are used directly as source material and
         *composition_map* is ignored.
 
+        Diversity tokens (camera angle + lighting) are cycled per candidate
+        index so the factory produces a visually varied set of designs.
+
         Args:
             pokemon_name: Canonical Pokémon name.
             candidate_index: Zero-based index for seed offset.
@@ -446,21 +453,40 @@ class FactoryRunner:
         else:
             if self._generator is None:
                 self._generator = PokemonImageGenerator(self.config.generation)
+
+            # ── Generation diversity ───────────────────────────────────────────
             seed: Optional[int] = None
             if self.config.generation.seed is not None:
                 seed = self.config.generation.seed + candidate_index
+
+            camera_angle = CAMERA_ANGLE_TOKENS[
+                candidate_index % len(CAMERA_ANGLE_TOKENS)
+            ]
+            lighting = LIGHTING_TOKENS[
+                candidate_index % len(LIGHTING_TOKENS)
+            ]
+
             imgs = self._generator.generate(
                 pokemon_name=pokemon_name,
                 prompt_extras=prompt_extra,
                 num_images=1,
                 seed=seed,
                 composition_map=composition_map,
+                camera_angle=camera_angle,
+                lighting=lighting,
             )
             if not imgs:
                 raise RuntimeError(
                     f"Generation returned no images for candidate {candidate_index}."
                 )
             img = imgs[0]
+            logger.debug(
+                "Candidate %d: seed=%s | angle='%s' | lighting='%s'",
+                candidate_index,
+                seed,
+                camera_angle,
+                lighting,
+            )
 
         styled = self._style_transfer.apply(img)
         return self._simplifier.simplify(styled)
@@ -549,6 +575,17 @@ def _serialise_config(config: PipelineConfig) -> Dict:
         "generation": {
             "model_local_path": str(gen.model_local_path),
             "model_hub_id": gen.model_hub_id,
+            "controlnet_openpose_local_path": str(gen.controlnet_openpose_local_path),
+            "controlnet_openpose_hub_id": gen.controlnet_openpose_hub_id,
+            "controlnet_canny_local_path": str(gen.controlnet_canny_local_path),
+            "controlnet_canny_hub_id": gen.controlnet_canny_hub_id,
+            "use_controlnet": gen.use_controlnet,
+            "controlnet_openpose_scale": gen.controlnet_openpose_scale,
+            "controlnet_canny_scale": gen.controlnet_canny_scale,
+            "lora_path": str(gen.lora_path) if gen.lora_path else None,
+            "lora_scale": gen.lora_scale,
+            "use_reference_encoding": gen.use_reference_encoding,
+            "reference_strength": gen.reference_strength,
             "num_inference_steps": gen.num_inference_steps,
             "guidance_scale": gen.guidance_scale,
             "width": gen.width,
@@ -558,6 +595,7 @@ def _serialise_config(config: PipelineConfig) -> Dict:
             "device": gen.device,
             "style_suffix": gen.style_suffix,
             "negative_prompt": gen.negative_prompt,
+            "optimise_prompt": gen.optimise_prompt,
             "use_composition_guidance": gen.use_composition_guidance,
             "composition_strength": gen.composition_strength,
         },
@@ -572,6 +610,9 @@ def _serialise_config(config: PipelineConfig) -> Dict:
             "canny_low": proc.canny_low,
             "canny_high": proc.canny_high,
             "output_size": list(proc.output_size),
+            "adaptive_edge_thinning": proc.adaptive_edge_thinning,
+            "merge_small_components": proc.merge_small_components,
+            "min_island_area": proc.min_island_area,
         },
     }
 
@@ -581,10 +622,20 @@ def _deserialise_config(cd: Dict):
     Reconstruct ``GenerationConfig`` and ``ProcessingConfig`` from a dict
     produced by ``_serialise_config``.
     """
+    from pathlib import Path
+
     from pokemon_stencil.config import GenerationConfig, ProcessingConfig
 
     gen_d = dict(cd["generation"])
     gen_d["model_local_path"] = Path(gen_d["model_local_path"])
+    gen_d["controlnet_openpose_local_path"] = Path(gen_d["controlnet_openpose_local_path"])
+    gen_d["controlnet_canny_local_path"] = Path(gen_d["controlnet_canny_local_path"])
+    if gen_d.get("lora_path"):
+        gen_d["lora_path"] = Path(gen_d["lora_path"])
+    else:
+        gen_d["lora_path"] = None
+    # Remove fields not in GenerationConfig that may have been added.
+    gen_d.pop("legacy_model_hub_id", None)
     gen_cfg = GenerationConfig(**gen_d)
 
     proc_d = dict(cd["processing"])

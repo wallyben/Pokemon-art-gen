@@ -1,8 +1,13 @@
 """
-Pokémon Stencil Art Factory — local Streamlit dashboard.
+Pokémon Stencil Art Factory — local Streamlit dashboard (v2).
 
-Allows users to generate Pokémon stencil artwork interactively through a
-browser-based UI without touching the command line.
+Upgraded controls for the DreamShaper + ControlNet pipeline:
+- Model selection (DreamShaper / SD 1.5 legacy)
+- Reference images preview
+- Pose reference image upload
+- Generation seed input
+- Prompt optimisation toggle
+- Generation preview grid
 
 Usage (invoked by the CLI)::
 
@@ -14,22 +19,20 @@ Layout
 Sidebar
     • Pokémon name (text input)
     • Description / pose prompt (textarea)
+    • Model selection (DreamShaper / SD 1.5)
+    • Prompt optimisation toggle
+    • Generation seed
     • Candidate count slider (1–20)
     • Top results slider (1–5)
-    • Generate button
+    • Pose reference image upload
+    • Auto-fetch references toggle
+    • Output directory
 
 Main panel
     • Stage-by-stage progress bar + status label
     • Per-candidate live progress during generation
-    • Results grid: preview image, stencil score, SVG download
-
-Architecture note
------------------
-Progress tracking is achieved via :class:`_ProgressFactoryRunner`, a thin
-subclass of :class:`~pokemon_stencil.factory.factory_runner.FactoryRunner`
-that overrides :meth:`_generate_one` and :meth:`_run_stencil_on_candidate`
-to fire callbacks at each candidate step.  The factory logic itself is
-never duplicated.
+    • Reference images preview grid
+    • Generation results grid with SVG downloads
 """
 
 from __future__ import annotations
@@ -49,6 +52,8 @@ st.set_page_config(
 )
 
 from pokemon_stencil.config import (  # noqa: E402  (after set_page_config)
+    DEFAULT_DREAMSHAPER_HUB_ID,
+    DEFAULT_MODEL_HUB_ID,
     FactoryConfig,
     GenerationConfig,
     OutputConfig,
@@ -73,6 +78,11 @@ _STAGE_LABELS: list[str] = [
 _DEFAULT_OUTPUT_DIR = Path("outputs")
 _DEFAULT_REFS_DIR = Path("refs")
 
+_MODEL_OPTIONS = {
+    "DreamShaper (recommended)": DEFAULT_DREAMSHAPER_HUB_ID,
+    "Stable Diffusion 1.5 (legacy)": DEFAULT_MODEL_HUB_ID,
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Progress-aware factory runner
 # ─────────────────────────────────────────────────────────────────────────────
@@ -81,15 +91,7 @@ class _ProgressFactoryRunner(FactoryRunner):
     """
     FactoryRunner subclass that fires progress callbacks at key milestones.
 
-    This class adds no new generation logic — it only injects lightweight
-    callback calls into the inherited methods.
-
-    Args:
-        config: Pipeline configuration.
-        on_candidate_done: Called after each candidate is generated/scored.
-            Receives ``(candidate_index: int, total: int)``.
-        on_stencil_done: Called after each stencil SVG pack is exported.
-            Receives ``(rank: int, total: int)``.
+    Adds no new generation logic – only injects lightweight callback calls.
     """
 
     def __init__(
@@ -146,13 +148,21 @@ def _build_config(
     output_dir: Path,
     candidate_count: int,
     top_k: int,
+    model_hub_id: str,
+    seed: Optional[int],
+    optimise_prompt: bool,
+    use_controlnet: bool,
 ) -> PipelineConfig:
     """Construct a CPU-safe PipelineConfig for dashboard use."""
     return PipelineConfig(
         generation=GenerationConfig(
+            model_hub_id=model_hub_id,
             num_inference_steps=20,
             device="cpu",
             torch_dtype="float32",
+            seed=seed,
+            optimise_prompt=optimise_prompt,
+            use_controlnet=use_controlnet,
         ),
         processing=ProcessingConfig(),
         output=OutputConfig(base_dir=output_dir),
@@ -187,6 +197,14 @@ def _refs_dir_for(pokemon_name: str) -> Path:
     return _DEFAULT_REFS_DIR / safe
 
 
+def _find_ref_images(refs_dir: Path) -> List[Path]:
+    """Return all reference image paths in *refs_dir*."""
+    if not refs_dir.is_dir():
+        return []
+    suffixes = {".png", ".jpg", ".jpeg", ".webp"}
+    return sorted(p for p in refs_dir.iterdir() if p.suffix.lower() in suffixes)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # UI sections
 # ─────────────────────────────────────────────────────────────────────────────
@@ -196,8 +214,7 @@ def _render_sidebar() -> dict:
     Render all input widgets in the sidebar.
 
     Returns:
-        Dict with keys: ``pokemon_name``, ``prompt``, ``count``, ``top_k``,
-        ``output_dir``, ``auto_fetch``.
+        Dict with all UI settings.
     """
     st.sidebar.title("🎨 Stencil Factory")
     st.sidebar.markdown("Generate Cricut-ready stencil SVGs from a text prompt.")
@@ -217,6 +234,43 @@ def _render_sidebar() -> dict:
     )
 
     st.sidebar.divider()
+    st.sidebar.subheader("Model Settings")
+
+    model_label = st.sidebar.selectbox(
+        "Base model",
+        options=list(_MODEL_OPTIONS.keys()),
+        index=0,
+        help="DreamShaper produces better Pokémon character quality.",
+    )
+    model_hub_id = _MODEL_OPTIONS[model_label]
+
+    use_controlnet = st.sidebar.toggle(
+        "Enable ControlNet (OpenPose + Canny)",
+        value=True,
+        help=(
+            "Uses dual ControlNet conditioning for precise pose and structure guidance. "
+            "Requires DreamShaper model. Disable to use text-only generation."
+        ),
+    )
+
+    optimise_prompt = st.sidebar.toggle(
+        "Optimise prompt (77-token limit)",
+        value=True,
+        help="Automatically compress prompts to fit within the CLIP 77-token limit.",
+    )
+
+    seed_input = st.sidebar.number_input(
+        "Generation seed (-1 = random)",
+        min_value=-1,
+        max_value=2**31 - 1,
+        value=-1,
+        step=1,
+        help="Set a fixed seed for reproducible results. -1 uses a random seed.",
+    )
+    seed: Optional[int] = None if seed_input == -1 else int(seed_input)
+
+    st.sidebar.divider()
+    st.sidebar.subheader("Generation Settings")
 
     count = st.sidebar.slider(
         "Candidate designs",
@@ -235,6 +289,16 @@ def _render_sidebar() -> dict:
     )
 
     st.sidebar.divider()
+    st.sidebar.subheader("References & Pose")
+
+    pose_reference = st.sidebar.file_uploader(
+        "Pose reference image (optional)",
+        type=["png", "jpg", "jpeg"],
+        help=(
+            "Upload a pose reference image. OpenPose will extract the skeleton "
+            "and use it as ControlNet conditioning."
+        ),
+    )
 
     auto_fetch = st.sidebar.toggle(
         "Auto-fetch reference images",
@@ -258,16 +322,34 @@ def _render_sidebar() -> dict:
         top_k=top_k,
         auto_fetch=auto_fetch,
         output_dir=Path(output_dir),
+        model_hub_id=model_hub_id,
+        model_label=model_label,
+        use_controlnet=use_controlnet,
+        optimise_prompt=optimise_prompt,
+        seed=seed,
+        pose_reference=pose_reference,
     )
+
+
+def _render_reference_preview(pokemon_name: str) -> None:
+    """Display reference images for *pokemon_name* if they exist on disk."""
+    refs_dir = _refs_dir_for(pokemon_name)
+    ref_paths = _find_ref_images(refs_dir)
+    if not ref_paths:
+        return
+
+    with st.expander(f"📸 Reference images ({len(ref_paths)} found in `{refs_dir}`)", expanded=False):
+        cols = st.columns(min(len(ref_paths), 6))
+        for i, ref_path in enumerate(ref_paths[:6]):
+            with cols[i % 6]:
+                st.image(str(ref_path), caption=ref_path.name, use_container_width=True)
+        if len(ref_paths) > 6:
+            st.caption(f"… and {len(ref_paths) - 6} more reference images.")
 
 
 def _render_progress_area() -> dict:
     """
     Create and return Streamlit placeholder containers for the progress UI.
-
-    Returns:
-        Dict with keys: ``stage_bar``, ``stage_label``, ``candidate_bar``,
-        ``candidate_label``, ``log``.
     """
     st.subheader("⚙️ Progress")
     stage_label = st.empty()
@@ -289,13 +371,7 @@ def _render_results(
     factory_result: FactoryResult,
     output_dir: Path,
 ) -> None:
-    """
-    Display preview images and SVG download buttons for each selected design.
-
-    Args:
-        factory_result: Result returned by :meth:`FactoryRunner.run`.
-        output_dir: Root output directory used during the run.
-    """
+    """Display preview images and SVG download buttons for each selected design."""
     st.subheader("✅ Results")
 
     if not factory_result.ranked:
@@ -311,11 +387,23 @@ def _render_results(
 
             with col_img:
                 if preview_images:
-                    st.image(
-                        str(preview_images[0]),
-                        caption=f"{run_name} — source image",
-                        use_container_width=True,
-                    )
+                    # Show generation preview grid (up to 4 images).
+                    grid_images = preview_images[:4]
+                    if len(grid_images) == 1:
+                        st.image(
+                            str(grid_images[0]),
+                            caption=f"{run_name} — source image",
+                            use_container_width=True,
+                        )
+                    else:
+                        grid_cols = st.columns(len(grid_images))
+                        for j, img_path in enumerate(grid_images):
+                            with grid_cols[j]:
+                                st.image(
+                                    str(img_path),
+                                    caption=f"img {j+1}",
+                                    use_container_width=True,
+                                )
                 else:
                     st.caption("No preview image available.")
 
@@ -361,6 +449,17 @@ def main() -> None:
     if not inputs["pokemon_name"].strip():
         st.warning("Enter a Pokémon name in the sidebar to get started.")
         return
+
+    # ── Model info banner ─────────────────────────────────────────────────────
+    controlnet_status = "✅ ControlNet enabled" if inputs["use_controlnet"] else "⚠️ ControlNet disabled (text-only)"
+    st.info(
+        f"**Model:** {inputs['model_label']}  |  {controlnet_status}  |  "
+        f"**Prompt optimisation:** {'✅ on' if inputs['optimise_prompt'] else '⚠️ off'}  |  "
+        f"**Seed:** {inputs['seed'] if inputs['seed'] is not None else 'random'}"
+    )
+
+    # ── Reference images preview ──────────────────────────────────────────────
+    _render_reference_preview(inputs["pokemon_name"])
 
     # ── Persist results across reruns ─────────────────────────────────────────
     if "last_result" not in st.session_state:
@@ -428,10 +527,31 @@ def main() -> None:
             refs_dir.mkdir(parents=True, exist_ok=True)
             log_placeholder.info(f"Reference directory: `{refs_dir}`")
 
-        # Build config (auto_fetch delegated to factory runner)
-        config = _build_config(output_dir, count, top_k)
+        # Save uploaded pose reference image to a temp path if provided.
+        pose_ref_path: Optional[Path] = None
+        if inputs["pose_reference"] is not None:
+            import tempfile
+            with tempfile.NamedTemporaryFile(
+                suffix=".png", delete=False
+            ) as tmp:
+                tmp.write(inputs["pose_reference"].getvalue())
+                pose_ref_path = Path(tmp.name)
+            log_placeholder.info(f"Pose reference saved to `{pose_ref_path}`")
+
+        # Build config
+        config = _build_config(
+            output_dir=output_dir,
+            candidate_count=count,
+            top_k=top_k,
+            model_hub_id=inputs["model_hub_id"],
+            seed=inputs["seed"],
+            optimise_prompt=inputs["optimise_prompt"],
+            use_controlnet=inputs["use_controlnet"],
+        )
         config.generation.auto_fetch_references = auto_fetch
         config.generation.max_reference_images = 25
+        if pose_ref_path:
+            config.generation.pose_reference_path = pose_ref_path
 
         # Stage 2: Composition guidance (handled inside runner)
         _set_stage(2, _STAGE_LABELS[1])
@@ -447,9 +567,6 @@ def main() -> None:
             on_stencil_done=_on_stencil_done,
         )
         runner._total_stencils = top_k
-
-        # Stage 4: Scoring + diversity
-        # (runs automatically inside runner.run() after generation)
 
         result: FactoryResult = runner.run(
             pokemon_name=pokemon_name,

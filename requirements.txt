@@ -19,3 +19,11 @@ diffusers>=0.21.0
 transformers>=4.31.0
 accelerate>=0.21.0
 safetensors>=0.3.3
+
+# ── ControlNet conditioning ───────────────────────────────────────────────────
+# Provides OpenposeDetector and other preprocessors for ControlNet inputs.
+controlnet-aux>=0.0.7
+
+# ── Model management ─────────────────────────────────────────────────────────
+# Used by ModelManager for automatic Hub downloads.
+huggingface_hub>=0.19.0

@@ -9,23 +9,40 @@ without touching internal logic.
 Directory conventions (applied corrections)
 -------------------------------------------
 - All runtime outputs live under ``outputs/`` (not ``output/``).
-- Pre-downloaded Stable Diffusion 1.5 weights are expected at
-  ``models/sd15/`` so the pipeline can run fully offline.
+- Pre-downloaded model weights are expected under ``models/`` so the
+  pipeline can run fully offline.
+
+Model stack (v2)
+-----------------
+- Base model:          Lykon/DreamShaper (SD 1.5 fine-tune)
+- ControlNet OpenPose: lllyasviel/control_v11p_sd15_openpose
+- ControlNet Canny:    lllyasviel/control_v11p_sd15_canny
+- LoRA:                optional character-enhancement LoRA
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 
 # ── Model paths ───────────────────────────────────────────────────────────────
 
-#: Default local path for the SD 1.5 model weights.
-#: The pipeline falls back to the HuggingFace Hub ID when this path is absent.
+#: Default local path for the SD 1.5 model weights (legacy fallback).
 DEFAULT_MODEL_LOCAL_PATH: Path = Path("models/sd15")
 DEFAULT_MODEL_HUB_ID: str = "runwayml/stable-diffusion-v1-5"
+
+#: DreamShaper base model – better Pokémon character quality.
+DEFAULT_DREAMSHAPER_LOCAL_PATH: Path = Path("models/dreamshaper")
+DEFAULT_DREAMSHAPER_HUB_ID: str = "Lykon/DreamShaper"
+
+#: ControlNet model paths.
+DEFAULT_CONTROLNET_OPENPOSE_LOCAL_PATH: Path = Path("models/controlnet_openpose")
+DEFAULT_CONTROLNET_OPENPOSE_HUB_ID: str = "lllyasviel/control_v11p_sd15_openpose"
+
+DEFAULT_CONTROLNET_CANNY_LOCAL_PATH: Path = Path("models/controlnet_canny")
+DEFAULT_CONTROLNET_CANNY_HUB_ID: str = "lllyasviel/control_v11p_sd15_canny"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -34,19 +51,71 @@ DEFAULT_MODEL_HUB_ID: str = "runwayml/stable-diffusion-v1-5"
 
 @dataclass
 class GenerationConfig:
-    """Parameters for Stable Diffusion 1.5 image generation.
+    """Parameters for image generation using the upgraded DreamShaper + ControlNet stack.
 
-    The model is loaded from ``model_local_path`` when that directory exists,
-    otherwise it is downloaded from ``model_hub_id`` (requires internet).
+    Model resolution order:
+    1. Local path (``model_local_path``) if directory is non-empty.
+    2. HuggingFace Hub ID (``model_hub_id``).
+
+    When ``use_controlnet=True`` the pipeline uses
+    ``StableDiffusionControlNetPipeline`` with both OpenPose and Canny
+    ControlNets for superior structure guidance.
+
+    When ``use_reference_encoding=True`` the pipeline uses img2img with the
+    ``CharacterReferenceEncoder`` latent at ``reference_strength`` to preserve
+    character appearance across scene variations.
     """
 
-    model_local_path: Path = field(default_factory=lambda: DEFAULT_MODEL_LOCAL_PATH)
-    model_hub_id: str = DEFAULT_MODEL_HUB_ID
+    # ── Base model ────────────────────────────────────────────────────────────
+    #: Local path for DreamShaper weights (falls back to Hub when absent).
+    model_local_path: Path = field(
+        default_factory=lambda: DEFAULT_DREAMSHAPER_LOCAL_PATH
+    )
+    model_hub_id: str = DEFAULT_DREAMSHAPER_HUB_ID
 
+    # ── Legacy SD 1.5 fallback ────────────────────────────────────────────────
+    #: Set to the SD 1.5 Hub ID to revert to the old model stack.
+    legacy_model_hub_id: str = DEFAULT_MODEL_HUB_ID
+
+    # ── ControlNet models ─────────────────────────────────────────────────────
+    controlnet_openpose_local_path: Path = field(
+        default_factory=lambda: DEFAULT_CONTROLNET_OPENPOSE_LOCAL_PATH
+    )
+    controlnet_openpose_hub_id: str = DEFAULT_CONTROLNET_OPENPOSE_HUB_ID
+
+    controlnet_canny_local_path: Path = field(
+        default_factory=lambda: DEFAULT_CONTROLNET_CANNY_LOCAL_PATH
+    )
+    controlnet_canny_hub_id: str = DEFAULT_CONTROLNET_CANNY_HUB_ID
+
+    #: When True, use ControlNet pipeline (OpenPose + Canny).
+    use_controlnet: bool = True
+
+    #: Conditioning scale for the ControlNet OpenPose branch [0..2].
+    controlnet_openpose_scale: float = 0.8
+
+    #: Conditioning scale for the ControlNet Canny branch [0..2].
+    controlnet_canny_scale: float = 0.6
+
+    # ── LoRA ──────────────────────────────────────────────────────────────────
+    #: Path to an optional LoRA `.safetensors` file for character enhancement.
+    lora_path: Optional[Path] = None
+
+    #: LoRA blending scale applied via ``load_lora_weights``.
+    lora_scale: float = 0.8
+
+    # ── Reference encoding ────────────────────────────────────────────────────
+    #: When True, encode reference images with VAE and use img2img conditioning.
+    use_reference_encoding: bool = True
+
+    #: img2img denoising strength; lower = more faithful to reference.
+    reference_strength: float = 0.35
+
+    # ── Generation parameters ─────────────────────────────────────────────────
     num_inference_steps: int = 25
     guidance_scale: float = 7.5
-    width: int = 512
-    height: int = 512
+    width: int = 768
+    height: int = 768
 
     #: Optional fixed seed for reproducible outputs.
     seed: Optional[int] = None
@@ -55,26 +124,36 @@ class GenerationConfig:
     torch_dtype: str = "float32"
     device: str = "cpu"
 
-    #: Prompt suffix appended to every generation to push output toward the
-    #: flat, bold aesthetics required for clean stencil cutting.
+    # ── Prompt ────────────────────────────────────────────────────────────────
+    #: Prompt suffix appended to every generation.
     style_suffix: str = (
-        "flat color illustration, bold outlines, minimal detail, "
-        "stencil art style, clean shapes, white background"
+        "clean cartoon illustration, bold outlines, vector style, "
+        "high contrast lighting, stencil art style, white background"
     )
 
     negative_prompt: str = (
-        "photorealistic, gradient, shadow, complex texture, noise, "
-        "blurry, watermark, signature, multiple characters"
+        "photorealistic, gradient, complex texture, noise, "
+        "blurry, watermark, signature, multiple characters, "
+        "extra limbs, deformed, low quality"
     )
 
+    #: When True, pass the prompt through PromptEngine to enforce 77-token limit.
+    optimise_prompt: bool = True
+
+    # ── Composition guidance (legacy) ─────────────────────────────────────────
     #: When True, a composition guidance map is generated from a reference
     #: image and fed to the generator as structural conditioning.
     use_composition_guidance: bool = True
 
     #: Blending strength for composition map conditioning in [0.0, 1.0].
-    #: Higher values follow the structural guide more closely.
     composition_strength: float = 0.6
 
+    # ── Pose reference ────────────────────────────────────────────────────────
+    #: Optional path to a pose reference image.  When set and ControlNet is
+    #: enabled, OpenPose is detected from this image instead of the Canny map.
+    pose_reference_path: Optional[Path] = None
+
+    # ── Reference fetching ────────────────────────────────────────────────────
     #: When True and the refs directory for the requested Pokémon is empty,
     #: the factory automatically fetches reference images before generation.
     auto_fetch_references: bool = False
@@ -119,6 +198,16 @@ class ProcessingConfig:
     # ── Image dimensions ──────────────────────────────────────────────────────
     #: All images are resized to this before processing.
     output_size: Tuple[int, int] = (512, 512)
+
+    # ── Stencil safety improvements ───────────────────────────────────────────
+    #: When True, apply adaptive edge thinning after posterisation.
+    adaptive_edge_thinning: bool = True
+
+    #: When True, merge small colour components into the nearest large neighbour.
+    merge_small_components: bool = True
+
+    #: Minimum island area (pixels) below which a component is merged/removed.
+    min_island_area: int = 200
 
 
 @dataclass
