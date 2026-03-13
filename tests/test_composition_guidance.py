@@ -247,20 +247,21 @@ class TestGeneratorAcceptsCompositionMap:
         pipe = self._make_pipe_mock(img)
 
         with patch(
-            "pokemon_stencil.image_gen.generator.load_sd_pipeline",
+            "pokemon_stencil.image_gen.generator.load_sdxl_controlnet_pipeline",
             return_value=pipe,
         ):
             gen = PokemonImageGenerator(config)
             images = gen.generate("Pikachu", composition_map=None)
 
         assert len(images) == 1
-        # No image/strength kwargs when composition_map is None.
+        # SDXL ControlNet pipeline never uses img2img strength.
         _, kwargs = pipe.call_args
-        assert "image" not in kwargs
         assert "strength" not in kwargs
+        # SDXL always passes ControlNet conditioning images as a list.
+        assert isinstance(kwargs.get("image"), list)
 
-    def test_generate_with_composition_map_passes_image_and_strength(self):
-        """When composition_map is provided, image + strength reach the pipe."""
+    def test_generate_with_composition_map_passes_controlnet_images(self):
+        """When composition_map is provided it feeds ControlNet conditioning."""
         from pokemon_stencil.config import GenerationConfig
         from pokemon_stencil.image_gen.generator import PokemonImageGenerator
 
@@ -274,7 +275,7 @@ class TestGeneratorAcceptsCompositionMap:
         comp_map = np.zeros((64, 64), dtype=np.uint8)
 
         with patch(
-            "pokemon_stencil.image_gen.generator.load_sd_pipeline",
+            "pokemon_stencil.image_gen.generator.load_sdxl_controlnet_pipeline",
             return_value=pipe,
         ):
             gen = PokemonImageGenerator(config)
@@ -282,11 +283,13 @@ class TestGeneratorAcceptsCompositionMap:
 
         assert len(images) == 1
         _, kwargs = pipe.call_args
-        assert "image" in kwargs
-        assert kwargs["strength"] == pytest.approx(0.5)
+        # SDXL uses ControlNet image list instead of img2img image+strength.
+        assert isinstance(kwargs.get("image"), list)
+        assert "controlnet_conditioning_scale" in kwargs
+        assert "strength" not in kwargs
 
-    def test_generate_composition_map_disabled_ignores_map(self):
-        """use_composition_guidance=False skips conditioning even if map given."""
+    def test_generate_composition_map_disabled_still_uses_controlnet(self):
+        """SDXL always uses ControlNet conditioning regardless of composition_map."""
         from pokemon_stencil.config import GenerationConfig
         from pokemon_stencil.image_gen.generator import PokemonImageGenerator
 
@@ -299,7 +302,7 @@ class TestGeneratorAcceptsCompositionMap:
         comp_map = np.ones((64, 64), dtype=np.uint8) * 255
 
         with patch(
-            "pokemon_stencil.image_gen.generator.load_sd_pipeline",
+            "pokemon_stencil.image_gen.generator.load_sdxl_controlnet_pipeline",
             return_value=pipe,
         ):
             gen = PokemonImageGenerator(config)
@@ -307,7 +310,7 @@ class TestGeneratorAcceptsCompositionMap:
 
         assert len(images) == 1
         _, kwargs = pipe.call_args
-        assert "image" not in kwargs
+        # SDXL never uses img2img strength parameter.
         assert "strength" not in kwargs
 
     def test_composition_map_to_image_2d_input(self):
@@ -342,7 +345,7 @@ class TestGeneratorAcceptsCompositionMap:
         comp_map = np.zeros((64, 64), dtype=np.uint8)
 
         with patch(
-            "pokemon_stencil.image_gen.generator.load_sd_pipeline",
+            "pokemon_stencil.image_gen.generator.load_sdxl_controlnet_pipeline",
             return_value=pipe,
         ):
             gen = PokemonImageGenerator(config)

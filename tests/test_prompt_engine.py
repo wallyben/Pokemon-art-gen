@@ -53,7 +53,7 @@ class TestPromptEngineBuild:
 
     def test_contains_style_tokens(self):
         prompt = self.engine.build("Pikachu")
-        assert "bold outlines" in prompt
+        assert "bold black outlines" in prompt
 
     def test_includes_extras(self):
         prompt = self.engine.build("Pikachu", extras="surfing a wave")
